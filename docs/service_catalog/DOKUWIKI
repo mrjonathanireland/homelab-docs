@@ -1,0 +1,38 @@
+ Purpose:
+Documentation
+
+Access Information:
+- URL: docs.lab.local
+- Location (VM): apps.lab.local
+- Container/Service Name: dokuwiki (docker container)
+
+Credentials:
+- Admin Username:
+- Admin Password Location:
+
+Technical Details:
+- Database: n/a
+- Configuration Files: /opt/docker/dokuwiki/dokuwiki/conf
+- Data Location: /opt/docker/dokuwiki/dokuwiki/data
+- Log Location: /opt/docker/dokuwiki/logs
+
+Common Operations:
+
+Restart:
+docker compose restart dokuwiki
+
+View Logs:
+docker logs dokuwiki
+
+Check Status:
+docker ps | dokuwiki
+
+Backup:
+tar -czf /opt/backups/dokuwiki-$(date +%Y%m%d).tar.gz /opt/docker/dokuwiki/
+
+Dependencies:
+- Requires: FreeIPA (DNS), Nginx (reverse proxy)
+- Required by: n/a
+
+Notes:
+- never ending

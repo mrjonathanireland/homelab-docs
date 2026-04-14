@@ -1,0 +1,962 @@
+ SERVICE DEPLOYMENT RUNBOOK
+===========================
+
+Purpose: Standardized procedure for deploying new services to the homelab. This ensures every service is properly integrated with DNS, monitoring, backups, and documentation.
+
+==== Overview ====
+
+This runbook is your checklist when adding ANY new service to the homelab. Following this procedure ensures:
+- Service has proper DNS resolution
+- Web services accessible via reverse proxy
+- Monitoring and logging configured
+- Backups in place
+- Documentation complete
+- Thoroughly tested before going live
+
+When to use this runbook:
+- Adding new Docker services (Vaultwarden, Nextcloud, Jellyfin, etc.)
+- Deploying new applications
+- Setting up new infrastructure components
+
+DO NOT use this runbook for:
+- Restoring existing services (see Backup Information)
+- Troubleshooting broken services (see Troubleshooting Guide)
+- Disaster recovery (see Disaster Recovery section)
+
+==== Phase 1: Pre-Deployment Planning ====
+
+Before deploying any service, answer these questions:
+
+Service Information:
+- What is the service name?
+- What is the service purpose?
+- Who will use this service?
+
+Technical Requirements:
+- What VM will host it? (mgmt, apps, mntr, or new VM?)
+- How much RAM does it need?
+- How much disk space does it need?
+- What ports does it need?
+- Does it need to be exposed externally? (yes/no)
+
+Dependencies:
+- Does it need a database? (PostgreSQL/MariaDB/SQLite/None)
+- Does it need reverse proxy? (Nginx - yes/no)
+- Does it need other services? (list)
+
+Naming:
+- What hostname will it use? ([service].lab.local)
+- What container name? ([service])
+- What directory for data? (/opt/docker/[service])
+
+Resource Check:
+
+Verify VM has resources available:
+
+ssh jireland@[target-vm]
+
+# Check available RAM:
+free -h
+
+# Check available disk:
+df -h /opt/docker
+
+# Check port not in use:
+ss -tlnp | grep [port]
+
+# List current containers:
+docker ps
+
+If resources insufficient, either:
+- Choose different VM
+- Reduce other services
+- Add more resources to VM in Proxmox
+- Create new VM
+
+Document Planning Decisions:
+
+Create deployment plan file:
+nano /opt/ansible/docs/deployments/[service]-deployment-plan.txt
+
+Service: [name]
+Purpose: [description]
+VM: [hostname]
+Port: [port]
+Hostname: [service].lab.local
+Resources: [RAM]GB RAM, [disk]GB disk
+Database: [type or none]
+Reverse Proxy: [yes/no]
+Dependencies: [list]
+Deployed by: [your name]
+Deployment date: [YYYY-MM-DD]
+
+==== Phase 2: Docker Service Deployment ====
+
+Step 1: SSH to target VM
+
+ssh [username]@[target-vm]
+
+Step 2: Create data directory
+
+sudo mkdir -p /opt/docker/[service]
+sudo chown [user]:[user] /opt/docker/[service]
+
+Step 3: Create configuration files (if needed)
+
+# Example for service with config file:
+nano /opt/docker/[service]/config.yml
+# Paste configuration
+# Save and exit
+
+Step 4: Add to docker-compose.yml
+
+cd /opt/docker
+nano docker-compose.yml
+
+# Add service definition:
+
+[service-name]:\\
+  image: [image:tag]\\
+  container_name: [service-name]\\
+  restart: unless-stopped\\
+  environment:\\
+    - ENV_VAR=value\\
+  volumes:\\
+    - ./[service-name]:/data\\
+  ports:\\
+    - "[port]:[port]"\\
+  networks:\\
+    - homelab\\
+
+
+# If service needs database, add depends_on:
+
+  depends_on:\\
+    - postgres  # or mariadb\\
+
+
+Save and exit
+
+Step 5: Validate docker-compose.yml syntax
+
+docker compose config
+# Should show parsed YAML with no errors
+
+Step 6: Start service
+
+docker compose up -d [service-name]
+
+Step 7: Verify service started
+
+docker ps | grep [service-name]
+# Should show container running
+
+Step 8: Check logs for errors
+
+docker logs [service-name]
+# Look for successful startup messages
+# Watch for errors
+
+docker logs -f [service-name]
+# Follow logs in real-time (Ctrl+C to exit)
+
+Step 9: Test service locally
+
+curl http://localhost:[port]
+# Should return response (not connection refused)
+
+# Or for web services:
+curl -I http://localhost:[port]
+# Should return HTTP 200 OK
+
+If service fails to start:
+- Check docker logs for errors
+- Verify port not in use: ss -tlnp | grep [port]
+- Verify volume paths exist: ls -la /opt/docker/[service]
+- Verify docker-compose.yml syntax: docker compose config
+- Check dependencies running: docker ps
+
+==== Phase 3: DNS Configuration ====
+
+Step 1: SSH to FreeIPA server
+
+ssh [user]@mgmt.lab.local
+
+Step 2: Authenticate as admin
+
+kinit admin
+# Enter admin password
+
+Step 3: Add DNS A record
+
+ipa dnsrecord-add lab.local [service-name] –a-rec=[VM-IP]
+
+Example:
+ipa dnsrecord-add lab.local vault –a-rec=192.168.1.12
+
+Step 4: Verify DNS resolution
+
+nslookup [service].lab.local
+# Should return correct IP address
+
+# Test from another machine:
+ping [service].lab.local
+# Should resolve and respond
+
+DNS IP Reference:
+- mgmt.lab.local: x.x.x.x
+- apps.lab.local: x.x.x.x
+- mntr.lab.local: x.x.x.x
+
+If DNS doesn't resolve:
+- Check FreeIPA DNS service: systemctl status named-pkcs11
+- Verify record created: ipa dnsrecord-show lab.local [service-name]
+- Check client using FreeIPA DNS: cat /etc/resolv.conf (should show 192.168.1.11)
+
+==== Phase 4: Reverse Proxy Configuration ====
+
+Only for web-based services that need external access
+
+Skip this phase if:
+- Service is not web-based
+- Service accessed via IP:port directly
+- Service is internal-only (like database)
+
+Step 1: SSH to apps VM (where Nginx runs)
+
+ssh [user]@apps.lab.local
+
+Step 2: Edit Nginx configuration
+
+cd /opt/docker/nginx
+nano nginx.conf
+
+Step 3: Add server block
+
+# Add before the closing brace:
+
+  server {\\
+      listen 443;\\
+      server_name [service].lab.local;\\
+      \\
+      location / {\\
+          proxy_pass http://[container-name]:[port];\\
+          proxy_set_header Host $host;\\
+          proxy_set_header X-Real-IP $remote_addr;\\
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\\
+          proxy_set_header X-Forwarded-Proto $scheme;\\
+      }\\
+  }\\
+
+
+Example:
+
+  server {\\
+      listen 443;\\
+      server_name vault.lab.local;\\
+      \\
+      location / {\\
+          proxy_pass http://vaultwarden:80;\\
+          proxy_set_header Host $host;\\
+          proxy_set_header X-Real-IP $remote_addr;\\
+      }\\
+  }\\
+
+
+Save and exit
+
+Step 4: Test Nginx configuration
+
+docker exec nginx nginx -t
+# Should show: syntax is ok, test is successful
+
+Step 5: Reload Nginx
+
+docker compose restart nginx
+
+Step 6: Verify routing works
+
+curl -I http://[service].lab.local
+# Should return HTTP 200 OK
+
+# From browser:
+http://[service].lab.local
+# Should load service
+
+If Nginx fails:
+- Check syntax: docker exec nginx nginx -t
+- Check Nginx logs: docker logs nginx
+- Verify service reachable: curl http://[container]:[port] from Nginx container
+- Check server_name matches DNS record
+
+==== Phase 5: Monitoring Integration ====
+
+Step 1: Determine monitoring needs
+
+Does service export Prometheus metrics?
+- Check service documentation
+- Common metrics endpoints: /metrics, /api/metrics
+
+Does service need log shipping?
+- Yes for critical services
+- No for non-critical or rarely-used services
+
+Step 2: Add to Prometheus (if service has metrics)
+
+ssh [user]@mntr.lab.local
+cd /opt/docker
+nano prometheus.yml
+
+# Add under scrape_configs:
+
+    job_name: '[service-name]'
+
+static_configs:
+
+    targets: ['[VM-IP]:[metrics-port]']
+
+labels:
+
+        instance: '[service].lab.local'\\
+
+
+Example:
+
+    job_name: 'vaultwarden'
+
+static_configs:
+
+    targets: ['x.x.x.x:PORT#']
+
+labels:
+
+        instance: 'vault.lab.local'\\
+
+
+Save and exit
+
+docker compose restart prometheus
+
+Step 3: Verify metrics collection
+
+# Open Prometheus UI:
+http://prometheus.lab.local/targets
+
+# Look for new target, should show “UP” status
+
+Step 4: Configure Promtail (if shipping logs)
+
+Promtail already configured on all VMs to ship:
+- /var/log/auth.log
+- /var/log/syslog
+
+For application-specific logs:
+
+ssh [user]@[target-vm]
+sudo nano /etc/promtail/promtail-config.yml
+
+# Add new scrape config:
+
+    job_name: [service]
+
+static_configs:
+
+    targets:
+        localhost
+
+labels:
+
+        job: [service]\\
+        host: [hostname]\\
+        __path__: /opt/docker/[service]/logs/*.log\\
+
+
+Save and exit
+
+sudo systemctl restart promtail
+
+Step 5: Verify logs appearing in Loki
+
+# Open Grafana:
+http://grafana.lab.local
+
+# Navigate to Explore
+# Select Loki data source
+# Query: {job=“[service]”}
+# Should show logs
+
+If monitoring not working:
+- Prometheus: Check targets page for errors
+- Check firewall: sudo firewall-cmd –list-ports (Rocky) or sudo ufw status (Ubuntu)
+- Promtail: Check status: sudo systemctl status promtail
+- Check Promtail logs: sudo journalctl -u promtail -f
+
+==== Phase 6: Backup Configuration ====
+
+Step 1: Identify what needs backup
+
+Critical data locations:
+- Database dumps (if service uses database)
+- Configuration files (/opt/docker/[service]/config.*)
+- User data (/opt/docker/[service]/data or similar)
+- Application state
+
+Do NOT backup:
+- Cache directories
+- Temporary files
+- Log files (unless critical audit logs)
+- Docker images (re-downloadable)
+
+Step 2: Test manual backup
+
+ssh [user]@[target-vm]
+
+# For file-based data:
+tar -czf /tmp/test-backup.tar.gz /opt/docker/[service]
+ls -lh /tmp/test-backup.tar.gz
+# Should show non-zero file size
+
+# For database-backed service:
+docker exec postgres pg_dump -U [user] [database] > /tmp/test-backup.sql
+# or
+docker exec mariadb mysqldump -u [user] -p[password] [database] > /tmp/test-backup.sql
+
+ls -lh /tmp/test-backup.sql
+# Should show non-zero file size
+
+# Clean up test:
+rm /tmp/test-backup.*
+
+Step 3: Add to backup playbook
+
+ssh [user]@mgmt.lab.local
+nano /opt/ansible/playbooks/backup-homelab.yml
+
+# Add task in appropriate section:
+
+    name: Backup [service] data
+
+archive:
+
+      path: /opt/docker/[service]\\
+      dest: /opt/backups/[service]-{{ timestamp }}.tar.gz\\
+    delegate_to: [target-vm]\\
+
+
+# For database-backed services:
+
+    name: Backup [service] database
+
+shell: docker exec [db-container] [dump-command] > /opt/backups/[service]-db-timestamp.sql
+
+    delegate_to: [target-vm]\\
+
+
+# Add cleanup task:
+
+    name: Clean old [service] backups
+
+find:
+
+      paths: /opt/backups\\
+      patterns: "[service]-*.tar.gz"\\
+      age: 7d\\
+    register: old_backups\\
+    delegate_to: [target-vm]\\
+
+
+    name: Delete old [service] backups
+
+file:
+
+      path: "{{ item.path }}"\\
+      state: absent\\
+    loop: "{{ old_backups.files }}"\\
+    delegate_to: [target-vm]\\
+
+
+Save and exit
+
+Step 4: Test backup playbook
+
+cd /opt/ansible/playbooks
+ansible-playbook backup-homelab.yml
+
+# Check backup created:
+ssh [user]@[target-vm]
+ls -lh /opt/backups/[service]-*
+
+Step 5: Document restore procedure
+
+Create restore documentation:
+nano /opt/ansible/docs/restore/[service]-restore.txt
+
+Service: [name]
+Backup location: /opt/backups/[service]-*.tar.gz
+
+Restore procedure:
+1. Stop service: docker compose stop [service]
+2. Remove old data: rm -rf /opt/docker/[service]/*
+3. Extract backup: tar -xzf /opt/backups/[service]-[date].tar.gz -C /
+4. Start service: docker compose up -d [service]
+5. Verify: docker logs [service]
+
+For database restore:
+1. Stop service: docker compose stop [service]
+2. Restore database: docker exec -i [db] [restore-command] < backup.sql
+3. Start service: docker compose up -d [service]
+
+Save and exit
+
+Step 6: Test restore procedure
+
+# On test/non-critical service only
+# Follow documented restore procedure
+# Verify service works after restore
+
+==== Phase 7: Documentation ====
+
+Step 1: Create Service Catalog entry
+
+Edit DokuWiki Service Catalog page
+
+Add new section:
+
+SERVICE CATALOG - [Service Name]
+================================
+
+Purpose: [Brief description of what service does]
+
+Access Information:
+- URL: http://[service].lab.local
+- Port(s): [port] ([internal/external])
+- Location (VM): [hostname]
+- Container/Service Name: [container-name]
+
+Credentials:
+- Admin Username: [username]
+- Admin Password Location: [where stored - Vaultwarden/documented/first-login]
+
+Technical Details:
+- Database: [PostgreSQL/MariaDB/SQLite/None]
+- Configuration Files: /opt/docker/[service]/config.*
+- Data Location: /opt/docker/[service]/data
+- Log Location: docker logs [service] or /opt/docker/[service]/logs/
+
+Common Operations:
+
+Restart:
+ssh [user]@[hostname]
+cd /opt/docker
+docker compose restart [service]
+
+View Logs:
+docker logs [service]
+docker logs -f [service] # Follow logs
+
+Check Status:
+docker ps | grep [service]
+curl http://[service].lab.local # Web services
+
+Backup:
+cd /opt/ansible/playbooks
+ansible-playbook backup-homelab.yml
+# Creates: /opt/backups/[service]-[timestamp].tar.gz
+
+Dependencies:
+- Requires: [list dependencies - database, other services, etc.]
+- Required by: [list services that depend on this]
+
+Notes:
+- [Any special considerations]
+- [Known issues]
+- [Maintenance schedules]
+
+Step 2: Update network diagram (if applicable)
+
+If service adds new network paths, update diagram in Architecture Overview
+
+Step 3: Update Change Log
+
+Edit Change Log page in DokuWiki:
+
+[YYYY-MM-DD] - Added [Service Name]
+- Deployed [service] on [VM]
+- Accessible at: http://[service].lab.local
+- Purpose: [brief purpose]
+- Monitoring: [Prometheus/Loki/None]
+- Backups: Configured
+
+Step 4: Document credentials (if applicable)
+
+If service has admin credentials:
+
+# For now (before Vaultwarden):
+Create file: /opt/ansible/docs/credentials/[service]-creds.txt
+# Encrypt or restrict permissions:
+chmod 600 /opt/ansible/docs/credentials/[service]-creds.txt
+
+# Later (Phase 2.2 with Vaultwarden):
+Store in Vaultwarden password manager
+
+==== Phase 8: Testing & Validation ====
+
+Comprehensive testing checklist:
+
+Test 1: DNS Resolution
+
+nslookup [service].lab.local
+# Should resolve to correct IP
+
+ping [service].lab.local
+# Should respond
+
+Test 2: Service Accessibility
+
+# From browser:
+http://[service].lab.local
+# Should load service UI
+
+# From command line:
+curl -I http://[service].lab.local
+# Should return HTTP 200
+
+Test 3: Basic Functionality
+
+# Perform core service function:
+# - Create test account
+# - Upload test file
+# - Run test query
+# - Whatever the service's primary function is
+
+Test 4: Data Persistence
+
+# Create test data in service
+
+# Restart service:
+ssh [user]@[target-vm]
+docker compose restart [service]
+
+# Verify test data still exists
+# This confirms volume mounts are correct
+
+Test 5: Full Container Restart
+
+docker compose stop [service]
+docker compose up -d [service]
+
+# Verify service starts cleanly
+docker logs [service]
+# Should show no errors
+
+# Verify data persists
+
+Test 6: Access from Different Clients
+
+# Test from:
+# - Your laptop
+# - Another VM
+# - Phone (via VPN if remote)
+
+# All should successfully access service
+
+Test 7: Monitoring Verification
+
+# Check Prometheus:
+http://prometheus.lab.local/targets
+# Service should show UP
+
+# Check Grafana:
+http://grafana.lab.local
+# Navigate to Explore
+# Query metrics or logs for service
+# Should return data
+
+Test 8: Backup Verification
+
+# Run backup:
+cd /opt/ansible/playbooks
+ansible-playbook backup-homelab.yml
+
+# Verify backup created:
+ssh [user]@[target-vm]
+ls -lh /opt/backups/[service]-*
+# Should show recent backup with non-zero size
+
+# Verify backup contents:
+tar -tzf /opt/backups/[service]-[latest].tar.gz | head
+# Should list expected files
+
+Test 9: Restore Verification (Critical Services Only)
+
+# Create test data
+# Run backup
+# Simulate disaster: docker compose stop [service] && rm -rf /opt/docker/[service]/data/*
+# Restore from backup (follow documented procedure)
+# Verify test data restored
+
+Test 10: Dependencies Check
+
+# If service depends on database:
+docker compose stop postgres # or mariadb
+# Service should show error or fail to start
+docker compose start postgres
+docker compose restart [service]
+# Service should recover
+
+Testing Checklist Summary:
+
+[ ] DNS resolves correctly
+[ ] Service accessible via hostname
+[ ] Basic functionality works
+[ ] Data persists after restart
+[ ] Container restart successful
+[ ] Accessible from multiple clients
+[ ] Monitoring collecting data
+[ ] Backup creates valid file
+[ ] Restore procedure works (critical services)
+[ ] Dependencies handled correctly
+
+If any test fails, DO NOT proceed. Fix issue before continuing.
+
+==== Phase 9: Go-Live & Handoff ====
+
+Step 1: Final pre-launch check
+
+Review completed phases:
+[ ] Docker service deployed and running
+[ ] DNS configured and resolving
+[ ] Reverse proxy configured (if applicable)
+[ ] Monitoring integrated
+[ ] Backups configured and tested
+[ ] Documentation complete
+[ ] All tests passed
+
+Step 2: Create user announcement (if applicable)
+
+For services with users, prepare announcement:
+
+Subject: New Service Available - [Service Name]
+
+We've deployed [Service Name] for [purpose].
+
+Access: http://[service].lab.local
+
+Features:
+- [Feature 1]
+- [Feature 2]
+- [Feature 3]
+
+Getting Started:
+1. [Step 1]
+2. [Step 2]
+3. [Step 3]
+
+Support: Contact [your name] for issues
+
+Step 3: Enable service (if was in testing mode)
+
+# Remove any test/maintenance flags
+# Make service discoverable (add to landing page, etc.)
+
+Step 4: Monitor for first 24-48 hours
+
+# Watch for:
+# - Errors in logs
+# - Resource usage spikes
+# - User-reported issues
+# - Performance problems
+
+# Check logs regularly:
+docker logs -f [service]
+
+# Monitor resources:
+docker stats [service]
+
+==== Post-Deployment Checklist ====
+
+After successful deployment, verify:
+
+Immediate (Day 1):
+[ ] Service accessible and functional
+[ ] No errors in logs
+[ ] Monitoring data appearing
+[ ] Backup scheduled and working
+[ ] Documentation complete
+[ ] Users notified (if applicable)
+
+Week 1:
+[ ] Service stable (no crashes/restarts)
+[ ] Resource usage normal
+[ ] Backups completing successfully
+[ ] No user-reported issues
+
+Month 1:
+[ ] Test restore from backup
+[ ] Review resource usage trends
+[ ] Update documentation based on learnings
+[ ] Gather user feedback (if applicable)
+
+==== Rollback Procedure ====
+
+If deployment fails or causes issues:
+
+Step 1: Stop service immediately
+
+ssh [user]@[target-vm]
+docker compose stop [service]
+
+Step 2: Remove from docker-compose.yml
+
+nano /opt/docker/docker-compose.yml
+# Comment out or remove service definition
+# Save and exit
+
+Step 3: Remove DNS record
+
+ssh [user]@mgmt.lab.local
+kinit admin
+ipa dnsrecord-del lab.local [service] –a-rec=[IP]
+
+Step 4: Remove Nginx config (if added)
+
+ssh [user]@apps.lab.local
+nano /opt/docker/nginx/nginx.conf
+# Remove server block
+# Save and exit
+docker compose restart nginx
+
+Step 5: Remove from monitoring
+
+ssh [user]@mntr.lab.local
+nano /opt/docker/prometheus.yml
+# Remove scrape config
+# Save and exit
+docker compose restart prometheus
+
+Step 6: Document rollback
+
+Update Change Log:
+[YYYY-MM-DD] - Rolled back [Service Name]
+- Reason: [why]
+- Issues encountered: [describe]
+- Lessons learned: [list]
+
+Step 7: Clean up data (optional)
+
+# Only if not planning to retry:
+ssh [user]@[target-vm]
+sudo rm -rf /opt/docker/[service]
+
+==== Common Deployment Scenarios ====
+
+Scenario 1: Simple Web Application (No Database)
+
+Example: Static file server, dashboard, monitoring tool
+
+Phases required:
+- Phase 1: Planning ✓
+- Phase 2: Docker Deployment ✓
+- Phase 3: DNS ✓
+- Phase 4: Reverse Proxy ✓
+- Phase 5: Monitoring (optional) ✓
+- Phase 6: Backup ✓
+- Phase 7: Documentation ✓
+- Phase 8: Testing ✓
+
+Estimated time: 1-2 hours
+
+Scenario 2: Application with Database
+
+Example: Gitea, WordPress, Nextcloud
+
+Additional considerations:
+- Database must be deployed first (or already exist)
+- Add depends_on in docker-compose.yml
+- Backup both application data AND database
+- Test database connection before going live
+
+Phases required: All phases
+Estimated time: 2-3 hours
+
+Scenario 3: Internal Service (No External Access)
+
+Example: Database, cache, internal API
+
+Phases to skip:
+- Phase 4: Reverse Proxy (not needed)
+
+Phases required: All others
+Estimated time: 1-2 hours
+
+Scenario 4: Background Service (No Web UI)
+
+Example: Backup service, monitoring agent, cron jobs
+
+Phases to skip:
+- Phase 3: DNS (maybe - depends on service)
+- Phase 4: Reverse Proxy (not needed)
+
+Phases required: All others
+Estimated time: 1 hour
+
+==== Tips & Best Practices ====
+
+Planning:
+- Always plan before deploying
+- Document decisions before executing
+- Check resource availability first
+- Review similar services for patterns
+
+Deployment:
+- Deploy during low-usage times
+- Start with minimal configuration
+- Test locally before exposing externally
+- Keep initial deployment simple
+
+Testing:
+- Test thoroughly before announcing
+- Verify data persistence (restart test)
+- Test from multiple clients
+- Have rollback plan ready
+
+Documentation:
+- Document as you deploy (not after)
+- Include troubleshooting notes
+- Document credentials securely
+- Update related documentation
+
+Monitoring:
+- Add monitoring from day 1
+- Watch closely for first 48 hours
+- Set up alerts (when Phase 4.2 complete)
+- Review resource usage weekly
+
+Backups:
+- Configure backups before going live
+- Test restore procedure
+- Verify backup file validity
+- Keep backups for 7+ days
+
+==== Quick Reference ====
+
+Full deployment workflow:
+
+1. Plan (decide VM, port, hostname, resources)
+2. Deploy (add to docker-compose.yml, start container)
+3. DNS (add A record in FreeIPA)
+4. Proxy (add Nginx server block if web service)
+5. Monitor (add to Prometheus/Promtail)
+6. Backup (add to backup playbook, test)
+7. Document (Service Catalog, Change Log)
+8. Test (DNS, access, persistence, monitoring, backup)
+9. Launch (announce, monitor)
+
+Critical paths:
+- Docker → DNS → Proxy → Test → Live
+- Docker → Monitoring → Backup → Test → Live
+
+Never skip:
+- Testing (Phase 8)
+- Documentation (Phase 7)
+- Backups (Phase 6)

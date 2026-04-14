@@ -1,0 +1,43 @@
+ Purpose:
+MySQL-compatible relational database providing persistent storage for WordPress (posts, pages, users, comments, settings).
+
+Access Information:
+- URL: N/A (internal database - no web interface)
+- Port(s): (internal only - not exposed externally)
+- Location (VM): apps.lab.local
+- Container/Service Name: mariadb
+
+Credentials:
+- Admin Username: root
+- Admin Password Location: Stored in Vaultwarden
+
+Technical Details:
+- Database: MariaDB 10.11
+- Configuration Files: /opt/docker/mariadb/ (if custom config exists)
+- Data Location: /opt/docker/mariadb-data/ (or Docker volume 'mariadb-data')
+- Log Location: docker logs mariadb
+
+Common Operations:
+
+Restart:
+docker compose restart mariadb
+
+View Logs:
+docker logs mariadb -f
+
+Check Status:
+docker ps | grep mariadb
+docker exec mariadb mysqladmin -u root -p ping
+
+Backup:
+docker exec mariadb mysqldump -u root -pPASSWORD wordpress > /opt/backups/wordpress-db-$(date +%Y%m%d).sql
+
+Dependencies:
+- Requires: None (standalone database)
+- Required by: WordPress (cannot function without database)
+
+Notes:
+- Contains WordPress database named “wordpress”
+- Critical data - backup regularly
+- Do NOT delete without backing up first
+- Restore: docker exec -i mariadb mysql -u root -pPASSWORD wordpress < backup.sql

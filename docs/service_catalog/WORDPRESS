@@ -1,0 +1,38 @@
+ Purpose:
+Blog & Load
+
+Access Information:
+- URL: http://blog.lab.local
+- Location (VM): apps.lab.local
+- Container/Service Name: wordpress (Docker container)
+
+Credentials:
+- Admin Username: admin
+- Admin Password Location: [stored in ansible vault]
+
+Technical Details:
+- Database: mariaDB
+- Configuration Files: /opt/docker/docker-compose.yml
+- Data Location: /opt/docker/wordpress/wp-config-docker.php
+- Log Location: /opt/docker/wordpress/debug.log
+
+Common Operations:
+
+Restart:
+docker compose wordpress
+
+View Logs:
+docker logs | grep wordpress
+
+Check Status:
+docker ps | grep gitea
+
+Backup:
+docker exec mariadb mysqldump -u root -pPASSWORD wordpress > /opt/backups/wordpress-db-$(date +%Y%m%d).sql
+tar -czf /opt/backups/wordpress-files-$(date +%Y%m%d).tar.gz /opt/docker/wordpress/
+
+Dependencies:
+- Requires: MariaDB, FreeIPA
+- Required by: n/a
+
+Notes: 

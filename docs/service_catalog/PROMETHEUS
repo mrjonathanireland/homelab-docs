@@ -1,0 +1,40 @@
+ Purpose:
+
+Access Information:
+- URL: mntr.lab.local
+- Location (VM): mntr.lab.local
+- Container/Service Name: Prometheus (Docker Container)
+
+Credentials:
+- Admin Username: n/a
+- Admin Password Location: n/a
+
+Technical Details:
+- Database: n/a
+- Configuration Files: /opt/docker/prometheus.yml
+- Data Location: /var/lib/docker/volumes/docker_prometheus-data/_data
+- Log Location: n/a
+
+Common Operations:
+
+Restart:
+docker compose restart prometheus
+
+View Logs:
+docker logs -t prometheus
+
+Check Status:
+docker ps | prometheus
+
+Backup:
+docker compose stop prometheus
+sudo tar -czf /opt/backups/prometheus-$(date +%Y%m%d).tar.gz
+/var/lib/docker/volumes/prometheus-data/_data/
+docker compose start prometheus
+
+Dependencies:
+- Requires: FreeIPA (DNS)
+- Required by: Grafana
+
+Notes:
+- Scrapes Data for grafana dashboards

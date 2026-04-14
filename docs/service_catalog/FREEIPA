@@ -1,0 +1,31 @@
+ SERVICE CATALOG - Freeipa
+
+Purpose: Identity Management and DNS
+
+Access Information: - URL: http://mgmt.lab.local
+- Location (VM): mgmt.lab.local
+- Container/Service Name: baremetal
+
+Credentials:
+- Admin Username: admin
+- Admin Password Location: KalmarBackNow5694!
+
+Technical Details:
+- Database: n/a
+- Configuration Files: n/a
+- Data Location: /var/lib/dirsrv & /var/lib/ipa
+- Log Location: /var/log/X
+
+Common Operations:
+
+- Get admin credentials: kinit admin
+- Get list of commands: ipa help
+- Modify users: ipa user-X
+- Modify groups: ipa group-X
+
+Dependencies:
+- Requires: n/a
+- Required by: Nginx, PostgreSQL, MariaDB, Prometheus
+
+Notes:
+- Acts as DNS for lab, and identity management relied on by rest of lab's VMs. Eventually all apps will need to go through its IM 

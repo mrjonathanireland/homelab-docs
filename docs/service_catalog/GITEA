@@ -1,0 +1,34 @@
+
+
+Purpose: Git repository hosting version Control
+
+Access Information:
+- URL: http://git.lab.local
+- Location (VM): apps.lab.local
+- Container/Service Name: gitea (Docker container)
+
+Credentials:
+- Admin Username: admin
+- Admin Password Location: [Stored in password manager]
+
+Technical Details:
+- Database: PostgreSQL (gitea database)
+- Configuration Files: /opt/docker/gitea/
+- Data Location: /opt/docker/gitea/
+- Log Location: /opt/dpcker/gitea/gitea/log
+
+Common Operations:
+
+Restart: docker compose restart gitea
+
+View Logs: docker logs gitea -f
+
+Check Status: docker ps | grep gitea
+
+Backup: tar -czf gitea-backup.tar.gz /opt/docker/gitea
+
+Dependencies: 
+- Requires: Postgresql
+- Required by: n/a
+
+Notes: - Version control 

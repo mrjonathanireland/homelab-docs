@@ -1,0 +1,19 @@
+ ### Vaultwarden
+
+Purpose: Centralized password management
+
+Technology: Vaultwarden (Bitwarden-compatible server)
+
+Hosted On: apps.lab.local
+
+Access: https://vault.lab.local
+
+SSL: Encrypted via apps.lab.local certificate
+
+Authentication: Master password (stored offline)
+
+Description: Self-hosted password manager providing encrypted storage for all infrastructure credentials, service passwords, and personal accounts. Integrates with Ansible Vault for infrastructure automation secrets.
+
+Key Features: - End-to-end encryption - Password generator - Folder organization - Secure notes - Browser extension support - Mobile app support
+
+Usage: - Store all passwords centrally - Generate s

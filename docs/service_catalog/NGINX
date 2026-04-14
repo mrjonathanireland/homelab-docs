@@ -1,0 +1,42 @@
+ Purpose:
+Reverse proxy and web server providing hostname-based routing to all web services. Routes traffic from clean URLs (git.lab.local, blog.lab.local) to backend Docker containers.
+
+Access Information:
+- URL: http://apps.lab.local & http://mntr.lab.local
+- Port(s): 80 (HTTP), 443 (HTTPS)
+- Location (VM): apps.lab.local mntr.lab.local
+- Container/Service Name: nginx
+
+Credentials:
+- Admin Username: N/A (no authentication - routing only)
+- Admin Password Location: N/A
+
+Technical Details:
+- Database: None
+- Configuration Files: /opt/docker/nginx/nginx.conf
+- Data Location: /opt/docker/nginx/html/ (static files/landing page)
+- Log Location: docker logs nginx
+
+Common Operations:
+
+Restart:
+docker compose restart nginx
+
+View Logs:
+docker logs nginx -f
+
+Check Status:
+docker ps | grep nginx
+curl -I http://localhost
+
+Backup:
+tar -czf /opt/backups/nginx-$(date +%Y%m%d).tar.gz /opt/docker/nginx/
+
+Dependencies:
+- Requires: FreeIPA DNS (for hostname resolution)
+- Required by: All web services & monitoring (Gitea, WordPress, Grafana, Portainer, DokuWiki, Uptime Kuma)(Grafana, Prometheus, & Loki)
+
+Notes:
+- All service routes are defined in nginx.conf server blocks
+- Restart Nginx after adding/modifying routes
+- Test config before restart: docker exec nginx nginx -t

@@ -1,0 +1,41 @@
+ Purpose:
+Scrape logs for Grafana dashboard
+
+Access Information:
+- URL: http://mntr.lab.local
+- Location (VM): mntr.lab.local
+- Container/Service Name: Loki (docker container)
+
+Credentials:
+- Admin Username: n/a
+- Admin Password Location: n/a
+
+Technical Details:
+- Database: n/a
+- Configuration Files: /opt/docker/loki-config.yml
+- Data Location: /var/lib/docker/volumes/loki-data/_data/
+- Log Location: docker logs loki
+
+Common Operations:
+
+Restart:
+docker compose restart loki
+
+View Logs:
+docker logs loki
+
+Check Status:
+docker ps | loki
+
+Backup:
+docker compose stop loki
+sudo tar -czf /opt/backups/loki-$(date +%Y%m%d).tar.gz \
+/var/lib/docker/volumes/loki-data/_data/>
+docker compose start loki
+
+Dependencies:
+- Requires: n/a
+- Required by: grafana
+
+Notes:
+- scraps logs, like prometheus but logs 

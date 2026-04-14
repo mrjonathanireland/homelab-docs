@@ -1,0 +1,43 @@
+ Purpose:
+Silly block game. Add load to server
+
+Access Information:
+- URL: n/a
+- Port(s): apps.lab.local:PORT#
+- Location (VM): apps.lab.local
+- Container/Service Name: Minecraft (docker container)
+
+Credentials:
+- Admin Username: n/a
+- Admin Password Location: n/a
+
+Technical Details:
+- Database: n/a
+- Configuration Files: /opt/docker/minecraft
+- Data Location: /opt/docker/minecraft
+- Log Location: /opt/docker/minecraft/logs
+
+Common Operations:
+
+Restart:
+docker compose restart minecraft
+
+View Logs:
+zless /opt/docker/minecraft/logs/X
+
+docker logs minecraft
+
+Check Status:
+docker ps | grep minecraft
+
+Backup:
+docker compose stop minecraft
+tar -czf /opt/backups/minecraft-$(date +%Y%m%d).tar.gz /opt/docker/minecraft/
+docker compose start minecraft
+
+Dependencies:
+- Requires: FreeIPA (DNS)
+- Required by: n/a
+
+Notes:
+- Minecraft, also to add load to server 

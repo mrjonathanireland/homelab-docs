@@ -1,0 +1,38 @@
+ Purpose:
+Container management and log viewing
+
+Access Information:
+- URL: portainer.lab.local
+- Location (VM): apps.lab.local
+- Container/Service Name: portainer (Docker Container)
+
+Credentials:
+- Admin Username: admin
+- Admin Password Location: [in password manager]
+
+Technical Details:
+- Database: /opt/docker/portainer/portainer.db
+- Configuration Files: /opt/docker/portainer/docker_config
+- Data Location: /opt/docker/portainer
+- Log Location: /var/lib/docker/containers/<container_id>/<container_id>-json.log
+
+Common Operations:
+
+Restart:
+docker restart portainer
+
+View Logs:
+docker log | grep portainer
+
+Check Status:
+docker ps | grep portainer
+
+Backup:
+n/a
+
+Dependencies:
+- Requires: FreeIPA (DNS/IAM)
+- Required by: n/a
+
+Notes:
+- Useful for docker management without CLI 

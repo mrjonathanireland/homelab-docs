@@ -1,0 +1,43 @@
+ Purpose:
+Relational database providing persistent storage for Gitea (Git repositories, users, issues, pull requests).
+
+Access Information:
+- URL: N/A (internal database - no web interface)
+- Port(s): (internal only - not exposed externally)
+- Location (VM): apps.lab.local
+- Container/Service Name: postgres
+
+Credentials:
+- Admin Username: postgres
+- Admin Password Location: Stored in Vaultwarden
+
+Technical Details:
+- Database: PostgreSQL 16
+- Configuration Files: /opt/docker/postgres/ (if custom config exists)
+- Data Location: /opt/docker/postgres-data/ (or Docker volume 'postgres-data')
+- Log Location: docker logs postgres
+
+Common Operations:
+
+Restart:
+docker compose restart postgres
+
+View Logs:
+docker logs postgres -f
+
+Check Status:
+docker ps | grep postgres
+docker exec postgres pg_isready
+
+Backup:
+docker exec postgres pg_dump -U gitea gitea > /opt/backups/gitea-db-$(date +%Y%m%d).sql
+
+Dependencies:
+- Requires: None (standalone database)
+- Required by: Gitea (cannot function without database)
+
+Notes:
+- Contains Gitea database named “gitea”
+- Critical data - backup regularly
+- Do NOT delete without backing up first
+- Restore: docker exec -i postgres psql -U gitea gitea < backup.sql
