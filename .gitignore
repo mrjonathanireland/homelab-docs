@@ -1,0 +1,70 @@
+# Secrets - NEVER COMMIT THESE
+*.key
+*.pem
+*.pfx
+vault.yml
+.vault_pass
+.env
+*.env
+secrets/
+credentials/
+private/
+personal/
+
+# SSH Keys
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+known_hosts
+
+# Backups that might contain data
+*.sql
+*.dump
+*.tar.gz
+*.gz
+*.zip
+*.bak
+backups/
+
+# Certificates (private keys)
+ssl/*.key
+*.crt (optional - certificates are public, but can exclude if you want)
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.project
+.settings/
+
+# Logs
+*.log
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
