@@ -32,9 +32,9 @@ Three virtual machines running on Proxmox with:
 ## Documentation
 
 - [Architecture Overview](docs/architecture-overview.md)
-- [Service Catalog](docs/service-catalog.md)
+- [Service Catalog](docs/service_catalog.md)
 - [Troubleshooting Guide](docs/troubleshooting-guide.md)
-- [SSL/TLS Guide](docs/ssl-tls-guide.md)
+- [SSL/TLS Guide](docs/ssl_tls_guide.md)
 
 ## Contact
 
