@@ -1,0 +1,54 @@
+Symptoms:
+- “Connection refused” to database
+- Service can't connect to PostgreSQL/MariaDB
+- “Lost connection to MySQL server”
+- Application shows database errors
+
+Diagnosis:
+docker ps | grep postgres
+docker ps | grep mariadb
+docker logs postgres
+docker logs mariadb
+docker exec postgres pg_isready
+docker exec mariadb mysqladmin ping
+
+Common Causes:
+- Database container not running
+- Database crashed (out of memory)
+- Wrong credentials in application config
+- Database not ready when application started
+- Network connectivity between containers
+
+Solutions:
+
+Restart database:
+docker compose restart postgres
+# or
+docker compose restart mariadb
+
+Check application waits for database:
+nano /opt/docker/docker-compose.yml
+# Add depends_on if missing:
+
+  [app]:\\
+    depends_on:\\
+      - postgres\\
+
+
+Restart application after database is up:
+docker compose restart [app]
+
+Check connection string:
+# Application should connect to container name, not localhost
+# Example: postgres:5432 not localhost:5432
+
+For persistent crashes:
+# Check database logs for errors
+docker logs postgres –tail 100
+# May need to increase database memory limits
+
+Prevention:
+- Use depends_on in docker-compose.yml
+- Configure health checks
+- Monitor database resource usage
+- Set appropriate connection timeouts in apps

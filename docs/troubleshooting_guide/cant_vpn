@@ -1,0 +1,54 @@
+Symptoms:
+- VPN connects but can't access services
+- Can ping VPN server but nothing else on network
+- VPN disconnects randomly
+- “No data received” in WireGuard stats
+
+Diagnosis:
+# On VPN server:
+sudo wg show
+cat /proc/sys/net/ipv4/ip_forward
+sudo iptables -t nat -L POSTROUTING
+
+# From client (when connected):
+ping 10.0.0.1 # VPN server IP
+ping 192.168.1.11 # Homelab VM
+
+Common Causes:
+- IP forwarding disabled on VPN server
+- Missing MASQUERADE rule
+- Firewall blocking traffic
+- Client routing not configured
+- VPN interface not started on boot
+
+Solutions:
+
+Enable IP forwarding (permanent):
+ssh [user]@[vpn-server]
+echo “net.ipv4.ip_forward=1” | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+
+Add MASQUERADE rule:
+sudo iptables -t nat -A POSTROUTING -o ens18 -j MASQUERADE
+sudo netfilter-persistent save
+
+Ensure WireGuard starts on boot:
+sudo systemctl enable wg-quick@wg0
+sudo systemctl start wg-quick@wg0
+
+Allow WireGuard through firewall:
+sudo ufw allow 51820/udp # Ubuntu
+# or
+sudo firewall-cmd –permanent –add-port=51820/udp # Rocky
+sudo firewall-cmd –reload
+
+Test from client:
+# When VPN connected:
+ping 192.168.1.11
+# Should work
+
+Prevention:
+- Enable WireGuard on boot (systemctl enable)
+- Document all VPN firewall rules
+- Test VPN after every server reboot
+- Keep WireGuard configs in version control

@@ -1,0 +1,56 @@
+Symptoms:
+- “No space left on device” errors
+- Services failing to start
+- Can't write files
+- Backups failing
+- Logs stopped being written
+
+Diagnosis:
+df -h
+du -sh /opt/docker/* | sort -h
+du -sh /var/lib/docker/* | sort -h
+docker system df
+find /var/log -type f -size +100M
+
+Common Causes:
+- Old Docker images/containers/volumes accumulating
+- Log files growing unchecked (especially Loki)
+- Prometheus/Loki retention too long
+- Old backups not cleaned up
+- Large files in /tmp not deleted
+
+Solutions:
+
+Clean Docker resources:
+docker system prune -a
+# Warning: Removes all unused images, containers, networks
+
+Clean old logs:
+# Find large log files
+find /var/log -type f -size +100M
+# Truncate if safe:
+sudo truncate -s 0 /var/log/[large-file].log
+
+Delete old backups:
+find /opt/backups -type f -mtime +7 -delete
+
+Reduce Loki retention:
+ssh [user]@mntr.lab.local
+nano /opt/docker/loki-config.yml
+# Change retention_period: 30d to 7d or 14d
+docker compose restart loki
+
+Reduce Prometheus retention:
+nano /opt/docker/docker-compose.yml
+# Find prometheus command, add/change:
+command:
+
+    '–storage.tsdb.retention.time=7d'
+
+docker compose restart prometheus
+
+Prevention:
+- Set up automated cleanup (cron job to delete old backups)
+- Configure log rotation
+- Set appropriate retention periods from start
+- Monitor disk usage in Grafana

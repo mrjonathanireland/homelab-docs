@@ -1,0 +1,58 @@
+Symptoms:
+- “This site can't be reached”
+- “DNS_PROBE_FINISHED_NXDOMAIN”
+- Service works via IP:port but not hostname
+- Browser times out connecting
+
+Diagnosis:
+nslookup [service].lab.local
+ping [service].lab.local
+curl http://[ip]:[port]
+docker logs nginx
+grep [service] /opt/docker/nginx/nginx.conf
+
+Common Causes:
+- DNS record missing in FreeIPA
+- Nginx reverse proxy not configured for service
+- Typo in hostname
+- Service container not running
+- Firewall blocking connection
+- Client not using FreeIPA DNS
+
+Solutions:
+
+For missing DNS record:
+ssh [user]@mgmt.lab.local
+kinit admin
+ipa dnsrecord-add lab.local [hostname] –a-rec=[ip]
+# Verify:
+nslookup [service].lab.local
+
+For missing Nginx route:
+ssh jireland@apps.lab.local
+nano /opt/docker/nginx/nginx.conf
+# Add server block:
+
+  server {\\
+      listen 80;\\
+      server_name [service].lab.local;\\
+      location / {\\
+          proxy_pass http://[container_name]:[port];\\
+      }\\
+  }\\
+
+docker compose restart nginx
+
+For service not running:
+docker ps | grep [service]
+docker compose up -d [service]
+
+For client DNS issues:
+# On client machine, verify DNS server is FreeIPA (192.168.1.11)
+# Check /etc/resolv.conf or network settings
+
+Prevention:
+- Add DNS record when deploying new service
+- Add Nginx route at same time
+- Test with nslookup before browser
+- Document all service URLs

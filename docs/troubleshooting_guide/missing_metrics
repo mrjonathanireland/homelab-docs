@@ -1,0 +1,65 @@
+Symptoms:
+- Grafana dashboards show “No data”
+- Logs not appearing in Loki
+- Some VMs missing from Prometheus targets
+- Gaps in metric timeline
+
+Diagnosis:
+# Check Prometheus targets (browser):
+http://mntr.lab.local:9090/targets
+
+# Check exporters running:
+systemctl status node_exporter
+systemctl status promtail
+
+# Test exporter endpoints:
+curl http://localhost:9100/metrics
+curl http://localhost:9080/ready # Promtail
+
+Common Causes:
+- Exporter stopped/crashed
+- Firewall blocking metrics port (especially Rocky Linux port 9100)
+- Prometheus config missing target
+- Promtail config incorrect
+- Service restarted but exporter didn't
+
+Solutions:
+
+Restart exporters:
+sudo systemctl restart node_exporter
+sudo systemctl restart promtail
+
+For Rocky Linux firewall:
+sudo firewall-cmd –permanent –add-port=9100/tcp
+sudo firewall-cmd –reload
+
+Verify Prometheus config has target:
+ssh jireland@mntr.lab.local
+cat /opt/docker/prometheus.yml | grep [hostname]
+
+Add missing target:
+nano /opt/docker/prometheus.yml
+# Add under scrape_configs:
+
+    job_name: '[hostname]'
+
+static_configs:
+
+    targets: ['[ip]:9100']
+
+labels:
+
+            instance: '[hostname].lab.local'\\
+
+
+docker compose restart prometheus
+
+Check Promtail config:
+cat /etc/promtail/promtail-config.yml
+# Verify clients: url points to http://192.168.1.13:3100/loki/api/v1/push
+
+Prevention:
+- Enable exporters on boot (systemctl enable)
+- Open firewall ports during exporter deployment
+- Set up alerting for target down
+- Document all monitoring endpoints

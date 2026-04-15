@@ -1,0 +1,51 @@
+ Symptoms:
+- Container shows “Exited” status
+- docker ps doesn't show the container
+- Service inaccessible via browser
+- Container keeps restarting
+
+Diagnosis:
+docker logs [container_name]
+docker ps -a | grep [container_name]
+docker inspect [container_name]
+df -h
+
+Common Causes:
+- Configuration syntax error (YAML indentation)
+- Port already in use by another service
+- Required dependency not running (database down)
+- Out of disk space
+- Volume mount path doesn't exist
+- Corrupted container state
+
+Solutions:
+
+For config errors:
+docker logs [container_name] –tail 50
+nano /opt/docker/docker-compose.yml
+# Fix syntax, save
+docker compose up -d [container_name]
+
+For port conflicts:
+ss -tlnp | grep [port]
+# Stop conflicting service or change port in docker-compose.yml
+
+For missing dependencies:
+docker ps | grep [dependency]
+docker compose up -d [dependency]
+docker compose up -d [container_name]
+
+For disk space:
+df -h
+docker system prune -a
+# Or delete old files/backups
+
+For corrupted state:
+docker compose down [container_name]
+docker compose up -d [container_name]
+
+Prevention:
+- Validate YAML before applying (use yamllint.com)
+- Check logs immediately after starting new services
+- Monitor disk space regularly
+- Use depends_on in docker-compose.yml

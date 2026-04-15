@@ -1,0 +1,197 @@
+Symptoms:
+- Browser warnings about “Not secure” or “Your connection is not private”
+- Certificate errors
+- HTTPS not working
+- ERR_CERT_AUTHORITY_INVALID
+
+Diagnosis:
+grep ssl /opt/docker/nginx/nginx.conf
+openssl s_client -connect [service].lab.local:443
+ls -la /opt/docker/nginx/certs/
+docker logs nginx | grep ssl
+
+Common Causes:
+- Self-signed certificate not trusted by browser
+- Certificate expired
+- Wrong certificate path in Nginx config
+- Port 443 not exposed
+- Certificate/key file permissions wrong
+
+Solutions:
+
+Generate self-signed certificate:
+mkdir -p /opt/docker/nginx/certs
+openssl req -x509 -nodes -days 365 -newkey rsa:2048
+
+    keyout /opt/docker/nginx/certs/nginx.key
+    out /opt/docker/nginx/certs/nginx.crt
+    subj “/CN=*.lab.local”
+
+
+Update Nginx config:
+nano /opt/docker/nginx/nginx.conf
+
+# Add SSL directives to server block:
+
+  server {\\
+      listen 443 ssl;\\
+      server_name [service].lab.local;\\
+      \\
+      ssl_certificate /etc/nginx/certs/nginx.crt;\\
+      ssl_certificate_key /etc/nginx/certs/nginx.key;\\
+      \\
+      location / {\\
+          proxy_pass http://[container]:[port];\\
+      }\\
+  }\\
+
+
+# Add HTTP to HTTPS redirect:
+
+  server {\\
+      listen 80;\\
+      server_name [service].lab.local;\\
+      return 301 https://$server_name$request_uri;\\
+  }\\
+
+
+Update docker-compose.yml to mount certs:
+volumes:
+
+    ./nginx/certs:/etc/nginx/certs:ro
+
+
+Restart Nginx:
+docker compose restart nginx
+
+Trust certificate in browser:
+# Browser → Advanced → Accept risk
+# Or import cert to system trust store
+
+Prevention:
+- Use Let's Encrypt for valid certificates (Phase 2.1)
+- Set calendar reminder for cert expiration
+- Monitor certificate validity in Grafana
+- Document cert renewal procedure
+
+### Browser Shows “Your connection is not private” or Certificate Warning
+
+Symptoms: - Browser displays security warning - Certificate shown as untrusted - “NET::ERR_CERT_AUTHORITY_INVALID” error
+
+Cause: FreeIPA Certificate Authority not trusted on client device
+
+Diagnosis: ```bash # Check certificate issuer openssl s_client -connect service.lab.local:443 | grep “issuer” # Should show: issuer=O=LAB.LOCAL, CN=Certificate Authority ```
+
+Solution:
+
+Download and install FreeIPA CA certificate:
+
+```bash # Download CA cert curl -o ~/ipa-ca.crt http://mgmt.lab.local/ipa/config/ca.crt
+
+# Linux: sudo cp ~/ipa-ca.crt /usr/local/share/ca-certificates/ sudo update-ca-trust
+
+# macOS: sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/ipa-ca.crt
+
+# Restart browser ```
+
+Prevention: Document CA installation in onboarding procedures
+
+—
+
+### Nginx Shows “cannot load certificate” Error
+
+Symptoms: - Nginx container fails to start - Error in logs: `cannot load certificate “/etc/nginx/ssl/hostname.crt”` - Services inaccessible
+
+Cause: SSL directory not mounted in Docker container
+
+Diagnosis: ```bash # Check if container can see SSL files docker exec nginx ls -la /etc/nginx/ssl/ # If error: mount is missing ```
+
+Solution:
+
+1. Verify volume mount in docker-compose.yml: ```yaml services:
+
+nginx:
+  volumes:
+    - /etc/nginx/ssl:/etc/nginx/ssl:ro
+
+```
+
+2. Recreate container (restart won't work): ```bash cd /opt/docker docker compose down docker compose up -d ```
+
+3. Verify mount: ```bash docker exec nginx ls -la /etc/nginx/ssl/ # Should show certificate files ```
+
+Prevention: Always recreate containers after docker-compose.yml changes
+
+—
+
+### HTTP Not Redirecting to HTTPS
+
+Symptoms: - Accessing http://service.lab.local doesn't redirect - Must manually type https: - Mixed content warnings Cause: Missing HTTP redirect block in Nginx configuration Diagnosis: ```bash # Check Nginx config docker exec nginx cat /etc/nginx/nginx.conf | grep “return 301” # If empty: redirect is missing ``` Solution: Add redirect block to nginx.conf: ```nginx server { listen 80; server_name service.lab.local; return 301 https:$host$request_uri; } ```
+
+Restart Nginx: ```bash docker compose restart nginx ```
+
+Test redirect: ```bash curl -I http://service.lab.local # Should show: 301 Moved Permanently # Location: https://service.lab.local/ ```
+
+—
+
+### “docker compose restart” Doesn't Apply Volume Changes
+
+Symptoms: - Added volume mount to docker-compose.yml - Ran `docker compose restart` - Container still can't see mounted files
+
+Cause: `restart` command reuses existing container with old configuration
+
+Diagnosis: ```bash # Check container mount points docker inspect nginx | grep -A 10 “Mounts” # Old mounts still present ```
+
+Solution:
+
+Volume changes require container recreation: ```bash docker compose down docker compose up -d ```
+
+Not: ```bash docker compose restart # This won't work for volume changes ```
+
+Prevention: Remember: restart = reload config, down/up = recreate container
+
+—
+
+### Certificate Expired
+
+Symptoms: - Browser shows “NET::ERR_CERT_DATE_INVALID” - Services show certificate expiration warning
+
+Cause: Certificate validity period exceeded (2 years)
+
+Diagnosis: ```bash # Check certificate expiration sudo openssl x509 -in /etc/nginx/ssl/hostname.crt -noout -dates ```
+
+Solution:
+
+1. Generate new CSR with same private key 2. Sign CSR with FreeIPA CA 3. Replace old certificate 4. Restart Nginx
+
+See SSL/TLS Management Guide for detailed renewal procedure.
+
+Prevention: Set calendar reminder 30 days before expiration
+
+—
+
+## Secrets Management Issues
+
+### Ansible Vault Decryption Failed
+
+Symptoms: - “Decryption failed” error when running playbook - “Vault password incorrect” message
+
+Cause: Wrong vault password or corrupted vault file
+
+Diagnosis: ```bash # Try to view vault ansible-vault view /opt/ansible/vars/vault.yml # Enter password - if fails, password is wrong ```
+
+Solution:
+
+1. Verify vault password in Vaultwarden:
+
+    Open Vaultwarden
+    Find “Ansible Vault Password” entry
+    Copy password
+
+2. Update .vault_pass file: ```bash nano /opt/ansible/.vault_pass # Paste correct password chmod 600 /opt/ansible/.vault_pass ```
+
+3. Test decryption: ```bash ansible-vault view /opt/ansible/vars/vault.yml # Should show decrypted contents ```
+
+Prevention: Keep vault password backup in offline secure location
+
+— 

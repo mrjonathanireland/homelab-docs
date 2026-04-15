@@ -1,0 +1,52 @@
+Symptoms:
+- Settings reset after container restart
+- Data disappears
+- Have to reconfigure service each time
+- “First-time setup” wizard appears again
+
+Diagnosis:
+docker inspect [container] | grep -A 10 Mounts
+ls -la /opt/docker/[service]/
+cat docker-compose.yml | grep -A 10 [service]
+
+Common Causes:
+- Volume not mounted (data stored in container, lost on restart)
+- Wrong volume path in docker-compose.yml
+- Volume deleted accidentally
+- Bind mount pointing to non-existent directory
+
+Solutions:
+
+Check docker-compose.yml has volumes:
+nano /opt/docker/docker-compose.yml
+
+# Should have:
+
+  services:\\
+    [service]:\\
+      volumes:\\
+        - ./[service]-data:/data  # or similar persistent path\\
+
+
+If missing volume:
+# Stop container
+docker compose down [service]
+
+# Add volume to docker-compose.yml
+# Create directory
+mkdir -p /opt/docker/[service]-data
+
+# Restart
+docker compose up -d [service]
+# Note: Previous config is lost, must reconfigure
+
+If wrong path:
+# Fix path in docker-compose.yml
+# Restart container
+docker compose down [service]
+docker compose up -d [service]
+
+Prevention:
+- Always define volumes in docker-compose.yml
+- Test restart before considering service “deployed”
+- Document data locations in service catalog

@@ -1,0 +1,51 @@
+
+Symptoms:
+- VM sluggish or unresponsive
+- Services slow to respond
+- System becomes unstable
+- “Out of memory” errors in logs
+
+Diagnosis:
+free -h
+htop
+docker stats
+ps aux –sort=-%mem | head -10
+ps aux –sort=-%cpu | head -10
+
+Common Causes:
+- Service memory leak
+- Too many services for available RAM
+- Log ingestion issues (Loki processing too much)
+- Runaway container
+- Misconfigured service (infinite loop)
+
+Solutions:
+
+For runaway container:
+docker stats –no-stream
+# Identify problem container
+docker compose restart [service]
+
+For Loki/Promtail issues:
+# Check Promtail config limits log sources
+cat /etc/promtail/promtail-config.yml
+# Should only scrape auth.log and syslog, not all logs
+
+For general high usage:
+# Restart problem service
+docker compose restart [service]
+
+# Or reboot VM if unstable
+ssh jireland@[host]
+sudo reboot
+
+For permanent fix:
+# Increase VM RAM in Proxmox (if available)
+# Or reduce number of running services
+# Or optimize service configs (reduce retention, cache size, etc.)
+
+Prevention:
+- Monitor resource usage regularly via Grafana
+- Set up alerts for high memory/CPU
+- Limit log retention periods
+- Configure Promtail to exclude self-referential logs

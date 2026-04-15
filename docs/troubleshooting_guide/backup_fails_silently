@@ -1,0 +1,50 @@
+Symptoms:
+- Backup command completes but no file created
+- Backup file is 0 bytes
+- Old backups not being deleted
+- Backup script shows success but data missing
+
+Diagnosis:
+ls -lh /opt/backups/
+df -h
+# Test backup command manually:
+docker exec postgres pg_dump -U gitea gitea > test-backup.sql
+ls -lh test-backup.sql
+echo $? # Should be 0 for success
+
+Common Causes:
+- Backup directory doesn't exist
+- No disk space
+- Wrong database name/username/password
+- Permissions issue
+- Backup command syntax error
+
+Solutions:
+
+Create backup directory:
+mkdir -p /opt/backups
+
+Test database dump:
+docker exec postgres pg_dump -U gitea gitea | head -20
+# Should show SQL output, not errors
+
+Check permissions:
+ls -ld /opt/backups
+# If wrong owner:
+sudo chown [adminuser]:[adminuser] /opt/backups
+
+Run backup with error checking:
+docker exec postgres pg_dump -U gitea gitea > /opt/backups/test.sql 2>&1
+echo $?
+# Check exit code: 0 = success, non-zero = error
+
+For database backups, verify credentials:
+docker exec -it postgres psql -U gitea gitea
+# Should connect without errors
+
+Prevention:
+- Test backups after creating them
+- Verify backup files are non-zero size
+- Set up monitoring for backup failures
+- Use Ansible playbook for consistent backups
+- Regularly test restore procedures
