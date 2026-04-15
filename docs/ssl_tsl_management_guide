@@ -1,0 +1,240 @@
+ # SSL/TLS Management Guide
+
+## Overview
+
+All homelab services use SSL/TLS encryption with certificates issued by FreeIPA Certificate Authority. This provides encrypted connections and centralized certificate management.
+
+## Architecture
+
+SSL Termination at Nginx: - External clients connect via HTTPS (encrypted) - Nginx terminates SSL and decrypts traffic - Backend services communicate via HTTP on trusted Docker network - All HTTP requests automatically redirect to HTTPS
+
+Certificate Authority: - FreeIPA configured as internal Certificate Authority - Issues certificates for all services - Centralized trust chain management
+
+## Certificate Inventory
+
+### apps.lab.local Certificate
+
+Common Name: apps.lab.local
+
+Subject Alternative Names (SANs): - apps.lab.local - git.lab.local - blog.lab.local - wiki.lab.local - portainer.lab.local - status.lab.local - vault.lab.local
+
+Details: - Issued By: Certificate Authority (LAB.LOCAL) - Validity: 2 years from issue date - Location: `/etc/nginx/ssl/apps.lab.local.{key,crt,csr}` - Used By: Nginx reverse proxy on apps.lab.local
+
+### mntr.lab.local Certificate
+
+Common Name: mntr.lab.local
+
+Subject Alternative Names (SANs): - mntr.lab.local - grafana.lab.local - prometheus.lab.local
+
+Details: - Issued By: Certificate Authority (LAB.LOCAL) - Validity: 2 years from issue date - Location: `/etc/nginx/ssl/mntr.lab.local.{key,crt,csr}` - Used By: Nginx reverse proxy on mntr.lab.local
+
+## Certificate Request Process
+
+### Manual CSR Method (Current Implementation)
+
+1. Generate Private Key and CSR:
+
+```bash # Create SSL directory sudo mkdir -p /etc/nginx/ssl cd /etc/nginx/ssl
+
+# Generate private key sudo openssl genrsa -out hostname.key 2048
+
+# Create CSR configuration with SANs sudo tee hostname.cnf « 'EOF' [req] default_bits = 2048 prompt = no default_md = sha256 distinguished_name = dn req_extensions = v3_req
+
+[dn] C=US ST=New York L=New York City O=LAB.LOCAL CN=hostname.lab.local
+
+[v3_req] keyUsage = keyEncipherment, dataEncipherment extendedKeyUsage = serverAuth subjectAltName = @alt_names
+
+[alt_names] DNS.1 = hostname.lab.local DNS.2 = service1.lab.local DNS.3 = service2.lab.local EOF
+
+# Generate CSR sudo openssl req -new \
+
+    key hostname.key \
+    out hostname.csr \
+    config hostname.cnf \
+    extensions v3_req
+
+```
+
+2. Sign CSR with FreeIPA CA:
+
+On mgmt.lab.local:
+
+```bash # Get Kerberos ticket kinit admin
+
+# Copy CSR from host scp user@hostname:/etc/nginx/ssl/hostname.csr /tmp/
+
+# Sign certificate ipa cert-request /tmp/hostname.csr \
+
+    -principal=HTTP/hostname.lab.local \
+    -certificate-out=/tmp/hostname.crt
+
+# Copy certificate back to host scp /tmp/hostname.crt user@hostname:/tmp/ ```
+
+3. Install Certificate:
+
+```bash # Move certificate to SSL directory sudo mv /tmp/hostname.crt /etc/nginx/ssl/
+
+# Set permissions sudo chmod 600 /etc/nginx/ssl/hostname.key sudo chmod 644 /etc/nginx/ssl/hostname.crt
+
+# Verify certificate SANs sudo openssl x509 -in /etc/nginx/ssl/hostname.crt -text -noout | grep -A1 “Subject Alternative Name” ```
+
+## Nginx SSL Configuration
+
+SSL Configuration Block:
+
+```nginx # SSL protocols and ciphers ssl_protocols TLSv1.2 TLSv1.3; ssl_prefer_server_ciphers on; ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384'; ssl_session_cache shared:SSL:10m; ssl_session_timeout 10m;
+
+# HTTP to HTTPS redirect server {
+
+  listen 80;
+  server_name service.lab.local;
+  return 301 https://$host$request_uri;
+
+}
+
+# HTTPS server block server {
+
+  listen 443 ssl;
+  server_name service.lab.local;
+
+  ssl_certificate /etc/nginx/ssl/hostname.crt;
+  ssl_certificate_key /etc/nginx/ssl/hostname.key;
+
+  location / {
+      proxy_pass http://backend:port;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+} ```
+
+Mount SSL Directory in Docker:
+
+```yaml services:
+
+nginx:
+  volumes:
+    - /etc/nginx/ssl:/etc/nginx/ssl:ro
+
+```
+
+Important: Volume changes require container recreation:
+
+```bash docker compose down docker compose up -d ```
+
+## Client Configuration
+
+To eliminate certificate warnings in browsers, install the FreeIPA CA certificate on client devices.
+
+### Download CA Certificate
+
+```bash curl -o ~/ipa-ca.crt http://mgmt.lab.local/ipa/config/ca.crt ```
+
+### Linux (Arch/Ubuntu/Debian)
+
+```bash # Copy to system trust store sudo cp ~/ipa-ca.crt /usr/local/share/ca-certificates/ipa-ca.crt
+
+# Update CA certificates sudo update-ca-trust # OR on Debian/Ubuntu: sudo update-ca-certificates
+
+# Restart browser to apply changes ```
+
+### macOS
+
+```bash # Install to system keychain sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/ipa-ca.crt
+
+# Restart browser to apply changes ```
+
+### Windows
+
+1. Download certificate from `http://mgmt.lab.local/ipa/config/ca.crt` 2. Double-click the certificate file 3. Click “Install Certificate” 4. Select “Local Machine” (requires administrator) 5. Select “Place all certificates in the following store” 6. Browse → “Trusted Root Certification Authorities” 7. Click OK → Next → Finish 8. Restart browser
+
+### Firefox (Uses Own Certificate Store)
+
+Option 1: Import Certificate 1. Settings → Privacy & Security → Certificates 2. View Certificates → Authorities tab 3. Import → Select ipa-ca.crt 4. Check “Trust this CA to identify websites” 5. Click OK
+
+Option 2: Use System Certificates 1. Open `about:config` in Firefox 2. Search: `security.enterprise_roots.enabled` 3. Set to `true` 4. Restart Firefox
+
+## Certificate Renewal
+
+Certificates are valid for 2 years. Renewal process:
+
+1. Generate new CSR using existing private key 2. Sign CSR with FreeIPA CA 3. Replace old certificate with new certificate 4. Restart nginx container
+
+No downtime required if renewal is performed before expiration.
+
+## Verification Commands
+
+```bash # Check certificate expiration sudo openssl x509 -in /etc/nginx/ssl/hostname.crt -noout -dates
+
+# Verify certificate SANs sudo openssl x509 -in /etc/nginx/ssl/hostname.crt -text -noout | grep -A1 “Subject Alternative Name”
+
+# Test HTTPS connection curl -v https://service.lab.local
+
+# Verify redirect from HTTP to HTTPS curl -I http://service.lab.local # Should show: 301 Moved Permanently, Location: https://...
+
+# Check certificate from browser's perspective openssl s_client -connect service.lab.local:443 -servername service.lab.local ```
+
+## Troubleshooting
+
+### Browser Shows Certificate Warning
+
+Cause: FreeIPA CA certificate not trusted on client device
+
+Solution: Install FreeIPA CA certificate (see Client Configuration section)
+
+### “Cannot load certificate” Error in Nginx
+
+Cause: SSL directory not mounted in Docker container
+
+Solution: 1. Verify volume mount in docker-compose.yml: `- /etc/nginx/ssl:/etc/nginx/ssl:ro` 2. Recreate container: `docker compose down && docker compose up -d` 3. Verify mount: `docker exec nginx ls -la /etc/nginx/ssl/`
+
+### Certificate Request Stuck in certmonger
+
+Cause: certmonger automation issues
+
+Solution: Use manual CSR method instead (documented above)
+
+### HTTP Not Redirecting to HTTPS
+
+Cause: Missing HTTP redirect server block
+
+Solution: Add redirect block to nginx.conf:
+
+```nginx server {
+
+  listen 80;
+  server_name service.lab.local;
+  return 301 https://$host$request_uri;
+
+} ```
+
+### “docker compose restart” Doesn't Apply Volume Changes
+
+Cause: Restart reuses existing container configuration
+
+Solution: Volume changes require container recreation:
+
+```bash docker compose down docker compose up -d ```
+
+## Backup and Recovery
+
+### Backup
+
+Certificate files backed up as part of nightly infrastructure backups.
+
+Files: - `/etc/nginx/ssl/*.key` (private keys - keep secure!) - `/etc/nginx/ssl/*.crt` (certificates) - `/etc/nginx/ssl/*.csr` (certificate signing requests) - `/etc/nginx/ssl/ipa-ca.crt` (FreeIPA CA certificate)
+
+### Recovery
+
+1. Restore certificate files from backup to `/etc/nginx/ssl/` 2. Set correct permissions: ```bash
+
+ sudo chmod 600 /etc/nginx/ssl/*.key
+ sudo chmod 644 /etc/nginx/ssl/*.crt
+
+``` 3. Restart nginx: `docker compose restart nginx` 4. Verify HTTPS works: `curl -I https://service.lab.local`
+
+## Security Considerations
+
+- Private keys (*.key) have 0600 permissions (owner read/write only) - Private keys never leave the host - Certificate files backed up securely - TLS 1.2 minimum (TLS 1.0/1.1 disabled) - Strong cipher suites only - Perfect Forward Secrecy enabled 

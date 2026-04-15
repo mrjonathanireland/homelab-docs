@@ -1,0 +1,190 @@
+
+
+Docker
+
+# Start all services:
+cd /opt/docker && docker compose up -d
+
+# Stop all services:
+docker compose down
+
+# Restart specific service:
+docker compose restart [service_name]
+
+# View logs:
+docker logs [container_name] -f
+
+# Check container status:
+docker ps
+
+# Check resource usage:
+docker stats
+
+# Update images:
+docker compose pull && docker compose up -d
+
+SystemD
+
+# Check service status:
+systemctl status [service]
+
+# Restart service:
+systemctl restart [service]
+
+# Enable on boot:
+systemctl enable [service]
+
+# Disable:
+systemctl disable [service]
+
+# View logs:
+journalctl -u [service] -f
+
+Ansible
+
+# Test connectivity:
+ansible all -m ping
+
+# Run playbook:
+ansible-playbook /opt/ansible/playbooks/[playbook].yml
+
+# Check inventory:
+ansible-inventory –list
+
+FreeIPA
+
+# Authenticate:
+kinit admin
+
+# Add user:
+ipa user-add username –first=First –last=Last –email=user@example.com
+
+# Add to group:
+ipa group-add-member [groupname] –users=[username]
+
+# Grant sudo:
+ipa sudorule-add-user homelab_sudo –users=[username]
+
+# Delete user:
+ipa user-del username
+
+Network Troubleshooting
+
+# Test connectivity:
+ping [hostname or IP]
+
+# DNS lookup:
+nslookup [hostname]
+
+# Check listening ports:
+ss -tlnp | grep [port]
+
+# Test web service:
+curl http://[service]:[port]
+
+# Check routing:
+ip route
+
+System Monitoring
+
+# Resource usage:
+htop
+
+# Disk space:
+df -h
+
+# Memory usage:
+free -h
+
+# Network interfaces:
+ip addr show
+
+SSL-TSL
+
+### Certificate Verification
+
+```bash # Check certificate expiration date sudo openssl x509 -in /etc/nginx/ssl/hostname.crt -noout -dates
+
+# Verify certificate Subject Alternative Names (SANs) sudo openssl x509 -in /etc/nginx/ssl/hostname.crt -text -noout | grep -A1 “Subject Alternative Name”
+
+# Check certificate issuer sudo openssl x509 -in /etc/nginx/ssl/hostname.crt -noout -issuer
+
+# View full certificate details sudo openssl x509 -in /etc/nginx/ssl/hostname.crt -text -noout
+
+# Test HTTPS connection curl -v https://service.lab.local
+
+# Test SSL/TLS handshake openssl s_client -connect service.lab.local:443 -servername service.lab.local ```
+
+### HTTP to HTTPS Redirect Testing
+
+```bash # Test redirect curl -I http://service.lab.local
+
+# Should show: # HTTP/1.1 301 Moved Permanently # Location: https://service.lab.local/
+
+# Follow redirect automatically curl -L http://service.lab.local ```
+
+### Nginx SSL Configuration
+
+```bash # Test nginx configuration docker exec nginx nginx -t
+
+# View SSL configuration docker exec nginx cat /etc/nginx/nginx.conf | grep -A 10 “ssl”
+
+# Check if SSL directory is mounted docker exec nginx ls -la /etc/nginx/ssl/
+
+# Reload nginx (for config changes) docker compose restart nginx
+
+# Recreate nginx (for volume changes) docker compose down nginx && docker compose up -d nginx ```
+
+### FreeIPA CA Certificate
+
+```bash # Download FreeIPA CA certificate curl -o ~/ipa-ca.crt http://mgmt.lab.local/ipa/config/ca.crt
+
+# View CA certificate details openssl x509 -in ~/ipa-ca.crt -text -noout
+
+# Install CA certificate on Linux sudo cp ~/ipa-ca.crt /usr/local/share/ca-certificates/ sudo update-ca-trust ```
+
+—
+
+## Secrets Management
+
+### Ansible Vault Operations
+
+```bash # View encrypted vault contents ansible-vault view /opt/ansible/vars/vault.yml
+
+# Edit encrypted vault ansible-vault edit /opt/ansible/vars/vault.yml
+
+# Encrypt existing file ansible-vault encrypt /opt/ansible/vars/plaintext.yml
+
+# Decrypt file (not recommended - creates plaintext) ansible-vault decrypt /opt/ansible/vars/vault.yml
+
+# Change vault password ansible-vault rekey /opt/ansible/vars/vault.yml ```
+
+### Environment File Management
+
+```bash # Generate .env files from Ansible Vault ansible-playbook /opt/ansible/playbooks/generate-env-files.yml
+
+# View .env file contents cat /opt/docker/.env
+
+# Check .env file permissions ls -la /opt/docker/.env # Should show: -rw——- (0600)
+
+# Verify Docker Compose reads .env cd /opt/docker docker compose config | grep PASSWORD # Should show actual passwords, not ${VARIABLES} ```
+
+### Password Rotation
+
+```bash # PostgreSQL password change docker exec -it postgres psql -U postgres ALTER USER username WITH PASSWORD 'NEW_PASSWORD'; \q
+
+# MariaDB password change docker exec -it mariadb mysql -u root -p ALTER USER 'username'@'localhost' IDENTIFIED BY 'NEW_PASSWORD'; ALTER USER 'username'@'%' IDENTIFIED BY 'NEW_PASSWORD'; FLUSH PRIVILEGES; EXIT;
+
+# After password change in database: # 1. Update password in Ansible Vault ansible-vault edit /opt/ansible/vars/vault.yml
+
+# 2. Regenerate .env files ansible-playbook /opt/ansible/playbooks/generate-env-files.yml
+
+# 3. Restart affected containers docker compose restart service_name ```
+
+### Database Connection Testing
+
+```bash # Test PostgreSQL connection docker exec -it postgres psql -U username -d database -W # Enter password
+
+# Test MariaDB connection docker exec -it mariadb mysql -u username -p database # Enter password
+
+# Test from application perspective docker logs service_name –tail 50 # Look for “Access denied” or “authentication failed” ```
