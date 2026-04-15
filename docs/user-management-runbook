@@ -1,0 +1,515 @@
+
+
+USER MANAGEMENT RUNBOOK
+========================
+
+Purpose: Step-by-step procedures for managing users in FreeIPA (centralized authentication system).
+
+==== Overview ====
+
+FreeIPA provides centralized user management for all homelab VMs. Users created in FreeIPA automatically have access to all domain-joined systems.
+
+User Roles:
+- SuperAdmin - Infrastructure owners (full access)
+- Admin - IT operations staff (elevated access)
+- Developer - Technical users (limited access)
+- User - Non-technical staff (basic access)
+
+Automation:
+All user management operations are automated via Ansible playbooks located at: /opt/ansible/playbooks/
+
+==== Prerequisites ====
+
+Before running user management playbooks:
+- SSH access to mgmt.lab.local
+- FreeIPA admin credentials
+- Ansible installed on mgmt.lab.local
+
+==== Add New User (Single) ====
+
+Purpose: Create a new user account with access to homelab VMs
+
+Procedure:
+
+1. SSH to management server:
+ssh [user]@mgmt.lab.local
+
+2. Navigate to playbooks directory:
+cd /opt/ansible/playbooks
+
+3. Run onboarding playbook:
+ansible-playbook onboard-user.yml
+
+4. Answer prompts:
+- Username: (lowercase, no spaces, 3-32 characters)
+- First Name: (user's first name)
+- Last Name: (user's last name)
+- Email Address: (valid email format)
+- Role: superadmin/admin/developer/user
+
+5. Verify user created:
+ipa user-show [username]
+
+6. Verify group membership:
+ipa group-show [role]s
+
+7. Test user access:
+ssh [username]@apps.lab.local
+# User will be prompted to set password on first login
+
+8. Test sudo access (if admin/developer/superadmin):
+ssh [username]@apps.lab.local 'sudo whoami'
+# Should return: root (without password prompt)
+
+Example:
+ansible-playbook onboard-user.yml
+Username: jdoe
+First Name: John
+Last Name: Doe
+Email Address: jdoe@lab.local
+Role: developer
+
+Notes:
+- User account is automatically available on all FreeIPA-joined VMs
+- Default shell is /bin/bash
+- Home directory created automatically on first login
+- Password must be changed on first login
+- User creation logged to: /opt/ansible/logs/user-onboarding.log
+
+==== Add Multiple Users (Batch) ====
+
+Purpose: Create multiple user accounts at once from a YAML file
+
+Procedure:
+
+1. SSH to management server:
+ssh [user]@mgmt.lab.local
+
+2. Create users definition file:
+nano /opt/ansible/vars/new-users.yml
+
+3. Add users in YAML format:
+users:
+
+    username: jdoe
+
+first_name: John
+
+  last_name: Doe\\
+  email: jdoe@lab.local\\
+  role: developer\\
+\\
+- username: asmith\\
+  first_name: Alice\\
+  last_name: Smith\\
+  email: asmith@lab.local\\
+  role: admin\\
+
+
+Save and exit
+
+4. Run batch onboarding playbook:
+cd /opt/ansible/playbooks
+ansible-playbook onboard-users-batch.yml
+
+5. Confirm file path when prompted:
+Path to users YAML file: /opt/ansible/vars/new-users.yml
+
+6. Review output:
+- Playbook shows which users will be created
+- Skips users that already exist
+- Displays summary of created users
+
+7. Verify users created:
+ipa user-find
+
+8. Notify users of their new accounts
+
+Notes:
+- Existing users are skipped automatically (no errors)
+- All users logged to: /opt/ansible/logs/user-onboarding.log
+- Users can be added incrementally to the same YAML file
+
+==== Modify User ====
+
+Purpose: Change user attributes (role, email, name) or reset password
+
+Procedure:
+
+1. SSH to management server:
+ssh [user]@mgmt.lab.local
+
+2. Run modify playbook:
+cd /opt/ansible/playbooks
+ansible-playbook modify-user.yml
+
+3. Answer prompts:
+- Username to modify: [username]
+- Action: change_role/change_email/change_name/reset_password
+- New value: (depends on action)
+
+4. Verify change:
+ipa user-show [username]
+
+Action-Specific Details:
+
+Change Role:
+- Action: change_role
+- New value: superadmin/admin/developer/user
+- Example: Promote jdoe from developer to admin
+
+    Username: jdoe
+    Action: change_role
+    New value: admin
+
+
+Change Email:
+- Action: change_email
+- New value: new.email@lab.local
+- Example: Update email address
+
+    Username: jdoe
+    Action: change_email
+    New value: john.doe@lab.local
+
+
+Change Name:
+- Action: change_name
+- New value: FirstName LastName (with space)
+- Example: User changed their name
+
+    Username: jdoe
+    Action: change_name
+    New value: Jonathan Doe
+
+
+Reset Password:
+- Action: reset_password
+- New value: (leave blank, press Enter)
+- User will be forced to set new password on next login
+- Example: User forgot password
+
+    Username: jdoe
+    Action: reset_password
+    New value: (press Enter)
+
+
+Notes:
+- All modifications logged to: /opt/ansible/logs/user-modifications.log
+- Role changes take effect immediately
+- User must log out and back in for group changes to apply
+
+==== Remove User (Offboard) ====
+
+Purpose: Disable or delete user accounts
+
+Procedure:
+
+1. SSH to management server:
+ssh [user]@mgmt.lab.local
+
+2. Run offboarding playbook:
+cd /opt/ansible/playbooks
+ansible-playbook offboard-user.yml
+
+3. Answer prompts:
+- Username to offboard: [username]
+- Action: disable/delete
+
+4. Review user details displayed
+
+5. Confirm action:
+Type 'yes' to confirm, or 'no' to cancel
+
+6. Verify user removed:
+ipa user-show [username]
+# Should fail if deleted, show “disabled” if disabled
+
+Disable vs Delete:
+
+Disable (Recommended):
+- User account preserved
+- User cannot log in
+- Data and settings retained
+- Can be re-enabled later: ipa user-enable [username]
+- Use for: temporary removal, departing contractors, leave of absence
+
+Delete (Permanent):
+- User account permanently removed
+- Cannot be undone
+- User details backed up to: /opt/ansible/logs/deleted-users/[username]-[date].txt
+- Use for: permanent termination, security incidents
+
+Example (Disable):
+ansible-playbook offboard-user.yml
+Username to offboard: jdoe
+Action: disable
+[Review details]
+Confirm: yes
+
+Example (Delete):
+ansible-playbook offboard-user.yml
+Username to offboard: jdoe
+Action: delete
+[Review details]
+Confirm: yes
+
+Notes:
+- All offboarding logged to: /opt/ansible/logs/user-offboarding.log
+- Deleted user details backed up for audit purposes
+- User home directories remain on VMs (manual cleanup if needed)
+
+==== Re-enable Disabled User ====
+
+Purpose: Restore access for a previously disabled user
+
+Procedure:
+
+1. SSH to FreeIPA server:
+ssh [user]@mgmt.lab.local
+
+2. Authenticate as admin:
+kinit admin
+
+3. Re-enable user account:
+ipa user-enable [username]
+
+4. Verify user enabled:
+ipa user-show [username]
+# Should not show “disabled”
+
+5. Test user access:
+ssh [username]@apps.lab.local
+
+Notes:
+- User retains all previous group memberships
+- User retains previous password
+- User can log in immediately
+
+==== User Roles and Permissions ====
+
+SuperAdmin (Tier 0):
+- Group: superadmins
+- Members: jireland
+- Sudo: Full (all commands, all hosts, no password)
+- SSH Access: All VMs (mgmt, apps, mntr)
+- Purpose: Infrastructure owners with complete control
+- Use case: Primary homelab administrator
+
+Admin (Tier 1):
+- Group: it_admins
+- Members: [IT operations staff]
+- Sudo: Limited (systemctl, docker, journalctl, reboot, apt/yum, docker-compose)
+- SSH Access: All VMs (mgmt, apps, mntr)
+- Purpose: Day-to-day operations and user management
+- Use case: Secondary administrators, trusted IT staff
+
+Developer (Tier 2):
+- Group: developers
+- Members: [Technical users]
+- Sudo: Very limited (docker logs, systemctl restart - apps VM only)
+- SSH Access: apps.lab.local only
+- Purpose: Technical users with minimal elevated access
+- Use case: Developers needing to deploy/debug applications
+
+User (Tier 3):
+- Group: users
+- Members: All users by default
+- Sudo: None
+- SSH Access: None (unless specific HBAC rule created)
+- Purpose: Non-technical staff, read-only access
+- Use case: HR, finance, general staff accessing web services only
+
+==== Manual User Operations ====
+
+For operations not covered by playbooks, use FreeIPA CLI directly:
+
+Authenticate to FreeIPA:
+ssh [user]@mgmt.lab.local
+kinit admin
+# Enter admin password
+
+List all users:
+ipa user-find
+
+Show user details:
+ipa user-show [username]
+
+List all groups:
+ipa group-find
+
+Show group members:
+ipa group-show [groupname]
+
+Add user to group manually:
+ipa group-add-member [groupname] –users=[username]
+
+Remove user from group manually:
+ipa group-remove-member [groupname] –users=[username]
+
+Change user shell:
+ipa user-mod [username] –shell=/bin/zsh
+
+Lock user account (alternative to disable):
+ipa user-disable [username]
+
+Unlock user account:
+ipa user-enable [username]
+
+View sudo rules:
+ipa sudorule-find
+
+Show sudo rule details:
+ipa sudorule-show [rulename]
+
+==== Troubleshooting ====
+
+User cannot log in:
+
+Diagnosis:
+ipa user-show [username]
+# Check if account is disabled
+
+ssh [username]@apps.lab.local
+# Check error message
+
+Solution:
+# If disabled:
+ipa user-enable [username]
+
+# If password expired:
+ipa passwd [username]
+# User sets new password on next login
+
+# If HBAC blocking (if configured):
+ipa hbacrule-add-user [rule] –users=[username]
+
+Sudo not working:
+
+Diagnosis:
+ssh [username]@apps.lab.local
+sudo -l
+# Shows which commands user can run
+
+ipa sudorule-show [role]_sudo
+# Verify user's role group is included
+
+Solution:
+# Verify user in correct group:
+ipa group-show [role]s
+
+# If missing, add user to group:
+ipa group-add-member [role]s –users=[username]
+
+# User must log out and back in:
+exit
+ssh [username]@apps.lab.local
+sudo whoami # Should work now
+
+User exists error when onboarding:
+
+Diagnosis:
+ipa user-show [username]
+# Confirms user already exists
+
+Solution:
+# Either:
+# 1. Use different username
+# 2. Delete existing user first (if appropriate):
+ansible-playbook offboard-user.yml
+
+# 3. Or modify existing user instead:
+ansible-playbook modify-user.yml
+
+Playbook fails with “kinit” error:
+
+Diagnosis:
+kinit admin
+# Try authenticating manually
+
+Solution:
+# If credentials expired:
+kinit admin
+# Enter password
+
+# Then re-run playbook
+
+User can't access specific VM:
+
+Diagnosis:
+# Check HBAC rules (if configured):
+ipa hbacrule-find
+
+Solution:
+# If HBAC enabled, add user to appropriate rule:
+ipa hbacrule-add-user [rule] –users=[username]
+
+# Or add user's group:
+ipa hbacrule-add-user [rule] –groups=[groupname]
+
+==== Logs and Audit Trail ====
+
+All user management operations are logged:
+
+Onboarding log:
+/opt/ansible/logs/user-onboarding.log
+Format: timestamp | CREATED | username | role | name | email | by [admin]
+
+Modifications log:
+/opt/ansible/logs/user-modifications.log
+Format: timestamp | ACTION | username | new_value | by [admin]
+
+Offboarding log:
+/opt/ansible/logs/user-offboarding.log
+Format: timestamp | DISABLE/DELETE | username | by [admin]
+
+Deleted user backups:
+/opt/ansible/logs/deleted-users/[username]-[timestamp].txt
+Contains full user details before deletion
+
+View recent user changes:
+tail -20 /opt/ansible/logs/user-onboarding.log
+tail -20 /opt/ansible/logs/user-modifications.log
+tail -20 /opt/ansible/logs/user-offboarding.log
+
+==== Best Practices ====
+
+Security:
+- Always use disable instead of delete unless absolutely necessary
+- Review sudo access regularly
+- Audit user accounts quarterly
+- Use strong, unique passwords
+- Enable 2FA for superadmin accounts (future)
+
+Operations:
+- Test new user accounts after creation
+- Document reason for role changes
+- Notify users before disabling accounts
+- Backup user data before deletion
+- Keep audit logs for compliance
+
+Automation:
+- Use batch onboarding for multiple users
+- Prefer playbooks over manual CLI commands
+- Version control user definition files
+- Review playbook logs after execution
+
+==== Quick Reference ====
+
+Onboard single user:
+cd /opt/ansible/playbooks && ansible-playbook onboard-user.yml
+
+Onboard multiple users:
+cd /opt/ansible/playbooks && ansible-playbook onboard-users-batch.yml
+
+Modify user:
+cd /opt/ansible/playbooks && ansible-playbook modify-user.yml
+
+Offboard user:
+cd /opt/ansible/playbooks && ansible-playbook offboard-user.yml
+
+Re-enable user:
+kinit admin && ipa user-enable [username]
+
+View logs:
+tail /opt/ansible/logs/user-*.log

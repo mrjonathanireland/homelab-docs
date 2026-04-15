@@ -1,0 +1,1216 @@
+ BACKUP INFORMATION
+==================
+
+Purpose: Comprehensive documentation of backup strategy, procedures, and disaster recovery for the homelab infrastructure.
+
+==== Overview ====
+
+This document describes what data is backed up, when backups run, where backups are stored, and how to restore from backups in various disaster scenarios.
+
+Backup Philosophy:
+- Automated daily backups of all critical data
+- 7-day retention for local backups
+- Regular testing of restore procedures
+- Clear RTO/RPO targets per service tier
+
+Current Backup Status:
+- Automated: Yes (via Ansible playbook + cron)
+- Offsite: No (planned for Phase 5)
+- Last tested: [Date of last restore test]
+
+==== What Gets Backed Up ====
+
+Critical Data (Must Backup):
+
+Gitea:
+- Repositories: /opt/docker/gitea/data/git/repositories
+- Database: PostgreSQL 'gitea' database
+- Config: /opt/docker/gitea/gitea/conf/app.ini
+- SSH keys: /opt/docker/gitea/git/.ssh
+
+WordPress:
+- Content: /opt/docker/wordpress/wp-content
+- Database: MariaDB 'wordpress' database
+- Uploads: /opt/docker/wordpress/wp-content/uploads
+- Themes: /opt/docker/wordpress/wp-content/themes
+- Plugins: /opt/docker/wordpress/wp-content/plugins
+
+FreeIPA:
+- LDAP database: via ipa-backup
+- DNS records: via ipa-backup
+- Certificates: via ipa-backup
+- Configuration: /etc/ipa/
+- Backup location: /var/lib/ipa/backup/
+
+Nginx:
+- Configuration: /opt/docker/nginx/nginx.conf
+- SSL certificates: /opt/docker/nginx/certs/ (future)
+- Static files: /opt/docker/nginx/html/
+
+PostgreSQL:
+- Gitea database: pg_dump
+
+MariaDB:
+- WordPress database: mysqldump
+
+Prometheus:
+- Metrics data: Docker volume 'prometheus-data'
+- Configuration: /opt/docker/prometheus.yml
+- Alert rules: /opt/docker/prometheus/alerts/ (future)
+
+Grafana:
+- Dashboards: Docker volume 'grafana-data'
+- Data sources: Docker volume 'grafana-data'
+- User accounts: Docker volume 'grafana-data'
+- Configuration: Docker volume 'grafana-data'
+
+Loki:
+- Log data: Docker volume 'loki-data'
+- Configuration: /opt/docker/loki-config.yml
+
+Ansible:
+- Playbooks: /opt/ansible/playbooks/
+- Inventory: /opt/ansible/inventory/
+- Variables: /opt/ansible/vars/
+- Documentation: /opt/ansible/docs/
+- Logs: /opt/ansible/logs/
+
+Portainer:
+- Configuration: /opt/docker/portainer/
+
+Uptime Kuma:
+- Monitors: /opt/docker/uptime-kuma/
+- Database: SQLite embedded in data directory
+
+DokuWiki:
+- Pages: /opt/docker/dokuwiki/data/pages/
+- Media: /opt/docker/dokuwiki/data/media/
+- Configuration: /opt/docker/dokuwiki/conf/
+
+Minecraft:
+- World data: /opt/docker/minecraft/
+- Server properties: /opt/docker/minecraft/server.properties
+
+What is NOT Backed Up (Recoverable):
+
+- Docker images (can re-pull from registries)
+- System packages (can reinstall via apt/yum)
+- Log files in /var/log (temporary, not critical)
+- Temporary files in /tmp
+- Cache directories
+- Prometheus/Loki data older than retention period
+
+==== Backup Schedule ====
+
+Daily Backups (2:00 AM):
+
+Automated via cron on mgmt.lab.local:
+
+0 2 * * * cd /opt/ansible/playbooks && ansible-playbook backup-homelab.yml
+
+What runs daily:
+- All database dumps (PostgreSQL, MariaDB)
+- Docker service configurations
+- User data directories
+- Ansible playbooks and configs
+- Automated cleanup of backups older than 7 days
+
+Weekly Backups (Sunday 3:00 AM):
+
+Currently manual, to be automated in Phase 5:
+
+- Full /opt/docker/ directory backup on all VMs
+- FreeIPA full backup (ipa-backup)
+- Verification of backup integrity
+
+Monthly Backups (1st of Month):
+
+Manual process:
+
+- Proxmox VM snapshots (via Proxmox UI)
+- Offsite backup upload (future - Phase 5)
+- Monthly restore test (verify backups work)
+
+Before Major Changes (Manual):
+
+Always run before:
+- Upgrading services
+- Modifying critical configs
+- Making infrastructure changes
+- Testing new features
+
+Procedure:
+1. Snapshot affected VM in Proxmox
+2. Run manual backup: ansible-playbook backup-homelab.yml
+3. Verify backup completed successfully
+4. Proceed with changes
+
+==== Backup Storage Locations ====
+
+Primary Storage (Current):
+
+Location: /opt/backups/ on each VM
+
+- mgmt.lab.local: /opt/backups/
+
+    FreeIPA backups
+    Ansible backups
+
+
+- apps.lab.local: /opt/backups/
+
+    Gitea database dumps
+    WordPress database dumps
+    Nginx configs
+    Service data archives
+
+
+- mntr.lab.local: /opt/backups/
+
+    Prometheus data
+    Grafana data
+    Loki data
+
+
+Retention: 7 days (automated cleanup)
+Type: Local disk
+Encryption: None (local network only)
+
+Secondary Storage (Future - Phase 5.1):
+
+Location: External USB drive at /mnt/backup
+Retention: 30 days
+Type: Physical USB 3.0 drive
+Encryption: LUKS encrypted
+Status: Planned
+
+Offsite Storage (Future - Phase 5.2):
+
+Location: Backblaze B2 / AWS S3
+Retention: 90 days
+Type: Cloud storage
+Encryption: GPG encrypted before upload
+Cost estimate: $5-10/month
+Status: Planned
+
+Disk Space Monitoring:
+
+Check backup disk usage:
+df -h /opt/backups
+
+Alert thresholds:
+- Warning: 80% full
+- Critical: 90% full
+- Action: Clean old backups or expand disk
+
+==== Backup Methods ====
+
+Automated Backup (Daily via Ansible):
+
+Cron job on mgmt.lab.local:
+0 2 * * * cd /opt/ansible/playbooks && ansible-playbook backup-homelab.yml
+
+Playbook location: /opt/ansible/playbooks/backup-homelab.yml
+
+Manual Backup (On-Demand):
+
+Run all backups manually:
+ssh [user]@mgmt.lab.local
+cd /opt/ansible/playbooks
+ansible-playbook backup-homelab.yml
+
+Per-Service Manual Backup Commands:
+
+PostgreSQL (Gitea database):
+ssh [user]@apps.lab.local
+docker exec postgres pg_dump -U gitea gitea > /opt/backups/gitea-db-$(date +%Y%m%d).sql
+
+Verify:
+ls -lh /opt/backups/gitea-db-*.sql
+
+MariaDB (WordPress database):
+ssh [user]d@apps.lab.local
+docker exec mariadb mysqldump -u root -pPASSWORD wordpress > /opt/backups/wordpress-db-$(date +%Y%m%d).sql
+
+Verify:
+ls -lh /opt/backups/wordpress-db-*.sql
+
+FreeIPA:
+ssh [user]@mgmt.lab.local
+sudo ipa-backup
+
+Backup saved to: /var/lib/ipa/backup/ipa-full-YYYY-MM-DD-HH-MM-SS/
+
+List backups:
+sudo ls -lh /var/lib/ipa/backup/
+
+Bind Mount Directories (apps.lab.local):
+ssh [user]@apps.lab.local
+tar -czf /opt/backups/gitea-$(date +%Y%m%d).tar.gz /opt/docker/gitea/
+tar -czf /opt/backups/wordpress-$(date +%Y%m%d).tar.gz /opt/docker/wordpress/
+tar -czf /opt/backups/nginx-$(date +%Y%m%d).tar.gz /opt/docker/nginx/
+
+Docker Volumes (mntr.lab.local):
+ssh [user]@mntr.lab.local
+
+# Stop service first:
+docker compose stop prometheus
+sudo tar -czf /opt/backups/prometheus-$(date +%Y%m%d).tar.gz /var/lib/docker/volumes/prometheus-data/_data/
+docker compose start prometheus
+
+# Repeat for Grafana:
+docker compose stop grafana
+sudo tar -czf /opt/backups/grafana-$(date +%Y%m%d).tar.gz /var/lib/docker/volumes/grafana-data/_data/
+docker compose start grafana
+
+# Repeat for Loki:
+docker compose stop loki
+sudo tar -czf /opt/backups/loki-$(date +%Y%m%d).tar.gz /var/lib/docker/volumes/loki-data/_data/
+docker compose start loki
+
+Ansible Playbooks:
+ssh jireland@mgmt.lab.local
+tar -czf /opt/backups/ansible-$(date +%Y%m%d).tar.gz /opt/ansible/
+
+==== Backup Verification ====
+
+Daily Verification (Automated):
+
+Check backup files exist:
+ssh [user]@apps.lab.local
+ls -lh /opt/backups/
+
+Check file sizes (should be non-zero):
+du -sh /opt/backups/*
+# All files should show reasonable sizes
+
+Check latest backup timestamp:
+ls -lt /opt/backups/ | head
+# Should show recent files (within 24 hours)
+
+Check Ansible Playbook Output:
+
+After running backup-homelab.yml:
+- All tasks should show 'ok' or 'changed'
+- No tasks should show 'failed'
+- Review PLAY RECAP for any failures
+
+Monthly Restore Test (1st of Month):
+
+Procedure:
+
+1. Select random service backup:
+ls /opt/backups/gitea-*.tar.gz | shuf -n 1
+
+2. Create test restore location:
+mkdir -p /tmp/restore-test
+
+3. Extract backup:
+tar -xzf /opt/backups/[selected-backup].tar.gz -C /tmp/restore-test
+
+4. Verify data integrity:
+ls -R /tmp/restore-test
+# Check files exist and sizes are reasonable
+
+5. For database backups, verify SQL is valid:
+head -50 /opt/backups/gitea-db-[date].sql
+# Should show valid SQL statements
+
+6. Document test results:
+echo “$(date): Tested [backup-file] - SUCCESS” » /opt/ansible/logs/restore-tests.log
+
+7. Clean up:
+rm -rf /tmp/restore-test
+
+Backup Health Dashboard (Future - Phase 4.2):
+
+Grafana dashboard showing:
+- Last successful backup timestamp per service
+- Backup file sizes over time
+- Disk space used in /opt/backups
+- Backup failures (if any)
+- Trend analysis
+
+==== Restore Procedures ====
+
+Restore PostgreSQL Database (Gitea):
+
+ssh [user]@apps.lab.local
+
+# Stop Gitea to prevent writes:
+docker compose stop gitea
+
+# Drop existing database (CAREFUL!):
+docker exec -it postgres psql -U gitea -c “DROP DATABASE gitea;”
+docker exec -it postgres psql -U gitea -c “CREATE DATABASE gitea;”
+
+# Restore from backup:
+docker exec -i postgres psql -U gitea gitea < /opt/backups/gitea-db-YYYYMMDD.sql
+
+# Start Gitea:
+docker compose up -d gitea
+
+# Verify:
+docker logs gitea
+# Check for successful startup, no database errors
+
+Restore MariaDB Database (WordPress):
+
+ssh jireland@apps.lab.local
+
+# Stop WordPress:
+docker compose stop wordpress
+
+# Restore database:
+docker exec -i mariadb mysql -u root -pPASSWORD wordpress < /opt/backups/wordpress-db-YYYYMMDD.sql
+
+# Start WordPress:
+docker compose up -d wordpress
+
+# Verify:
+curl http://blog.lab.local
+# Should load WordPress site
+
+Restore Service Data (Bind Mounts):
+
+Example: Restore Gitea files
+
+ssh [user]@apps.lab.local
+
+# Stop service:
+docker compose stop gitea
+
+# Backup current data (just in case):
+mv /opt/docker/gitea /opt/docker/gitea.old
+
+# Extract backup:
+tar -xzf /opt/backups/gitea-YYYYMMDD.tar.gz -C /
+# Note: This restores to original path /opt/docker/gitea
+
+# Fix permissions if needed:
+sudo chown -R jireland:jireland /opt/docker/gitea
+
+# Start service:
+docker compose up -d gitea
+
+# Verify:
+docker logs gitea
+# Check service starts successfully
+
+# Clean up old backup if successful:
+rm -rf /opt/docker/gitea.old
+
+Restore Docker Volumes (mntr.lab.local):
+
+Example: Restore Prometheus data
+
+ssh jireland@mntr.lab.local
+
+# Stop Prometheus:
+docker compose stop prometheus
+
+# Remove old data:
+sudo rm -rf /var/lib/docker/volumes/prometheus-data/_data/*
+
+# Extract backup:
+sudo tar -xzf /opt/backups/prometheus-YYYYMMDD.tar.gz -C /
+# Restores to /var/lib/docker/volumes/prometheus-data/_data/
+
+# Start Prometheus:
+docker compose up -d prometheus
+
+# Verify:
+docker logs prometheus
+curl http://localhost:9090/-/healthy
+# Should return: Prometheus is Healthy.
+
+Restore FreeIPA:
+
+ssh [user]@mgmt.lab.local
+
+# List available backups:
+sudo ls /var/lib/ipa/backup/
+
+# Restore from specific backup:
+sudo ipa-restore /var/lib/ipa/backup/ipa-full-YYYY-MM-DD-HH-MM-SS
+
+# Restart FreeIPA services:
+sudo systemctl restart ipa
+
+# Verify:
+ipa user-find
+# Should list users
+
+kinit admin
+# Should authenticate successfully
+
+Restore from Proxmox VM Snapshot:
+
+1. Open Proxmox web interface: https://proxmox-host:8006
+
+2. Select VM from left sidebar
+
+3. Click “Snapshots” tab
+
+4. Select snapshot to restore
+
+5. Click “Rollback”
+
+6. Confirm rollback
+
+7. Start VM
+
+8. Verify VM boots successfully
+
+9. SSH to VM and verify services:
+docker ps
+# All containers should be running
+
+Restore Entire Service (Complete Procedure):
+
+Example: Complete Gitea restore
+
+ssh [user]@apps.lab.local
+
+# 1. Stop service:
+docker compose stop gitea
+
+# 2. Restore database:
+docker exec -i postgres psql -U gitea gitea < /opt/backups/gitea-db-YYYYMMDD.sql
+
+# 3. Restore files:
+rm -rf /opt/docker/gitea
+tar -xzf /opt/backups/gitea-YYYYMMDD.tar.gz -C /
+
+# 4. Fix permissions:
+sudo chown -R jireland:jireland /opt/docker/gitea
+
+# 5. Start service:
+docker compose up -d gitea
+
+# 6. Verify:
+docker logs gitea
+curl http://git.lab.local
+# Should load Gitea interface
+
+# 7. Test functionality:
+# - Login to Gitea
+# - Browse repositories
+# - Verify data is current
+
+==== Disaster Recovery Scenarios ====
+
+Scenario 1: Single Service Corrupted
+
+Example: Gitea database corrupted, service won't start
+
+RTO: 30 minutes
+RPO: 24 hours (last daily backup)
+
+Recovery Procedure:
+
+1. Identify corrupted service:
+docker ps -a | grep gitea
+docker logs gitea
+
+2. Stop service:
+docker compose stop gitea
+
+3. Restore from most recent backup:
+docker exec -i postgres psql -U gitea gitea < /opt/backups/gitea-db-[latest].sql
+
+4. Restart service:
+docker compose up -d gitea
+
+5. Verify functionality:
+curl http://git.lab.local
+
+Expected downtime: 15-30 minutes
+Data loss: Up to 24 hours (since last backup)
+
+Scenario 2: VM Crashed (Cannot Boot)
+
+Example: apps.lab.local won't boot after power failure
+
+RTO: 1 hour
+RPO: 1 week (last VM snapshot) + 24 hours (daily backups)
+
+Recovery Procedure:
+
+1. Attempt to restore VM from Proxmox snapshot:
+- Proxmox UI → apps.lab.local → Snapshots → Rollback to latest
+
+2. If snapshot restore successful:
+- Boot VM
+- Verify services: docker ps
+- Restore data from daily backups (for data newer than snapshot)
+
+3. If snapshot restore fails:
+- Create new VM with same specs
+- Install OS (Ubuntu 24.04)
+- Restore /opt/docker from backup
+- Restore docker-compose.yml
+- Run: docker compose up -d
+
+Expected downtime: 1-2 hours
+Data loss: 24 hours (daily backup interval)
+
+Scenario 3: Multiple VMs Down (Entire Proxmox Host Failed)
+
+Example: Proxmox server hardware failure, all VMs offline
+
+RTO: 4-8 hours
+RPO: 24 hours
+
+Recovery Procedure:
+
+1. Obtain replacement hardware (or rebuild Proxmox host)
+
+2. Install Proxmox on new hardware
+
+3. Recreate VMs using documented specs:
+- mgmt.lab.local: 3GB RAM, 2 vCPU, 30GB disk, Rocky Linux
+- apps.lab.local: 10GB RAM, 4 vCPU, 100GB disk, Ubuntu
+- mntr.lab.local: 3GB RAM, 2 vCPU, 50GB disk, Ubuntu
+
+4. Install OS on each VM
+
+5. Restore from backups (if backups stored offsite or on separate drive):
+
+On mgmt.lab.local:
+- Restore /opt/ansible
+- Restore FreeIPA: ipa-restore
+
+On apps.lab.local:
+- Restore /opt/docker
+- Restore databases
+- Start services: docker compose up -d
+
+On mntr.lab.local:
+- Restore /opt/docker
+- Restore Prometheus/Grafana/Loki data
+- Start services: docker compose up -d
+
+6. Verify all services:
+- DNS resolution working
+- Services accessible
+- Monitoring operational
+
+Expected downtime: 6-12 hours (depends on hardware availability)
+Data loss: 24 hours (or more if offsite backups not current)
+
+Critical dependency: Offsite backups (Phase 5) - without this, recovery impossible
+
+Scenario 4: Complete Data Center Loss (Fire, Flood, Theft)
+
+Example: Physical location destroyed, all hardware lost
+
+RTO: 24-48 hours
+RPO: 24 hours (if offsite backups configured)
+
+Recovery Procedure:
+
+Prerequisites (Phase 5 required):
+- Offsite backups in cloud storage
+- Documentation stored in Git repository (GitHub/GitLab)
+- Encrypted backup copies
+
+Recovery Steps:
+
+1. Obtain new hardware
+
+2. Download documentation from Git repository
+
+3. Rebuild Proxmox host
+
+4. Recreate VMs from documentation
+
+5. Download backups from cloud storage
+
+6. Decrypt backups:
+gpg –decrypt backup.tar.gz.gpg > backup.tar.gz
+
+7. Restore all services following documented procedures
+
+8. Verify complete functionality
+
+Expected downtime: 24-72 hours (depends on hardware procurement)
+Data loss: 24 hours (if offsite backups current)
+
+Current status: NOT RECOVERABLE - offsite backups not yet implemented
+Action required: Implement Phase 5 (Offsite Backup Strategy)
+
+==== RTO/RPO Targets ====
+
+Recovery Time Objective (RTO): Maximum acceptable downtime
+Recovery Point Objective (RPO): Maximum acceptable data loss
+
+Critical Services (Tier 0):
+
+Services: FreeIPA, DNS
+Importance: Authentication and name resolution - entire lab depends on these
+
+RTO: 30 minutes
+RPO: 24 hours
+
+Backup frequency: Daily + weekly
+Restore priority: FIRST
+
+Application Services (Tier 1):
+
+Services: Gitea, WordPress, Nginx
+Importance: User-facing applications with business value
+
+RTO: 2 hours
+RPO: 24 hours
+
+Backup frequency: Daily
+Restore priority: SECOND
+
+Monitoring Services (Tier 2):
+
+Services: Prometheus, Grafana, Loki
+Importance: Operational visibility - helpful but not critical
+
+RTO: 4 hours
+RPO: 7 days (acceptable metric/log data loss)
+
+Backup frequency: Daily (but can tolerate data loss)
+Restore priority: THIRD
+
+Development/Test Services (Tier 3):
+
+Services: Minecraft, test containers
+Importance: Non-critical, recreational
+
+RTO: 8 hours
+RPO: 7 days
+
+Backup frequency: Weekly
+Restore priority: LAST
+
+RTO/RPO by Scenario:
+
+Scenario 	RTO 	RPO 	Priority
+Single service failure 	30 min 	24 hrs 	High
+VM crash 	1 hour 	24 hrs 	High
+Proxmox host failure 	8 hours 	24 hrs 	Medium
+Data center loss 	48 hours 	24 hrs 	Low
+
+
+==== Backup Monitoring ====
+
+Current Monitoring (Manual):
+
+Daily checks:
+ls -lh /opt/backups/
+# Verify recent files exist
+
+Weekly checks:
+du -sh /opt/backups/*
+# Verify file sizes reasonable
+
+Monthly checks:
+# Perform test restore (see Backup Verification section)
+
+Future Monitoring (Phase 4.2 - Grafana Alerts):
+
+Grafana dashboard metrics:
+- Last successful backup timestamp (per service)
+- Backup file sizes over time (detect anomalies)
+- Disk space used in /opt/backups (prevent disk full)
+- Backup script execution status (success/failure)
+- Time since last backup (alert if > 48 hours)
+
+Alert conditions:
+- Backup failed (Ansible playbook error)
+- Backup file size < 1MB (likely failed silently)
+- Backup file size decreased > 50% from average (data loss?)
+- No backup in 48 hours (cron job broken?)
+- /opt/backups disk usage > 80%
+
+Alert destinations:
+- Email notification
+- Slack/Discord webhook (future)
+- Uptime Kuma monitoring
+
+Backup Audit Log:
+
+Location: /opt/ansible/logs/backup-audit.log
+
+Format:
+YYYY-MM-DD HH:MM:SS | SERVICE | ACTION | SIZE | STATUS
+
+Example entries:
+2026-03-11 02:00:15 | gitea-db | BACKUP | 45MB | SUCCESS
+2026-03-11 02:01:22 | wordpress-db | BACKUP | 12MB | SUCCESS
+2026-03-11 02:05:33 | prometheus | BACKUP | 2.3GB | SUCCESS
+
+View recent backups:
+tail -50 /opt/ansible/logs/backup-audit.log
+
+==== Backup Inventory ====
+
+Complete list of backed-up services:
+
+Service 	VM 	Data Location 	Backup Method 	Frequency 	Retention 	Size
+FreeIPA 	mgmt 	/var/lib/ipa 	ipa-backup 	Weekly 	30d 	~500MB
+Ansible 	mgmt 	/opt/ansible 	tar archive 	Daily 	7d 	~50MB
+Gitea repos 	apps 	/opt/docker/gitea 	tar archive 	Daily 	7d 	~1GB
+Gitea DB 	apps 	PostgreSQL 	pg_dump 	Daily 	7d 	~50MB
+WordPress files 	apps 	/opt/docker/wordpress 	tar archive 	Daily 	7d 	~200MB
+WordPress DB 	apps 	MariaDB 	mysqldump 	Daily 	7d 	~15MB
+Nginx config 	apps 	/opt/docker/nginx 	tar archive 	Daily 	7d 	~5MB
+PostgreSQL 	apps 	Container 	pg_dump 	Daily 	7d 	~50MB
+MariaDB 	apps 	Container 	mysqldump 	Daily 	7d 	~15MB
+Portainer 	apps 	/opt/docker/portainer 	tar archive 	Daily 	7d 	~10MB
+Uptime Kuma 	apps 	/opt/docker/uptime-kuma 	tar archive 	Daily 	7d 	~20MB
+DokuWiki 	apps 	/opt/docker/dokuwiki 	tar archive 	Daily 	7d 	~100MB
+Minecraft 	apps 	/opt/docker/minecraft 	tar archive 	Daily 	7d 	~500MB
+Prometheus 	mntr 	Docker volume 	tar + stop/start 	Daily 	7d 	~2GB
+Grafana 	mntr 	Docker volume 	tar + stop/start 	Daily 	7d 	~100MB
+Loki 	mntr 	Docker volume 	tar + stop/start 	Daily 	7d 	~1GB
+
+
+Total backup size per VM:
+- mgmt.lab.local: ~550MB/day
+- apps.lab.local: ~2GB/day
+- mntr.lab.local: ~3GB/day
+- Total: ~5.5GB/day
+
+Weekly storage required: ~40GB
+With 7-day retention: 40GB minimum free space in /opt/backups
+
+==== Troubleshooting Backups ====
+
+Backup file is 0 bytes or missing:
+
+Diagnosis:
+ls -lh /opt/backups/[service]-*
+# Shows 0 byte file or file doesn't exist
+
+Cause: Backup command failed silently
+
+Solution:
+# Run backup command manually with error output:
+docker exec postgres pg_dump -U gitea gitea > /tmp/test.sql 2>&1
+cat /tmp/test.sql
+# Look for error messages
+
+# Common issues:
+# - Wrong database name
+# - Wrong username/password
+# - Database not running
+# - Permission denied
+
+Fix underlying issue, then re-run backup
+
+Backup directory doesn't exist:
+
+Diagnosis:
+ls /opt/backups
+# No such file or directory
+
+Cause: Directory not created
+
+Solution:
+mkdir -p /opt/backups
+sudo chown [user]:[user] /opt/backups
+
+Permission denied errors:
+
+Diagnosis:
+ls -ld /opt/backups
+# Shows: drwxr-xr-x root root
+
+Cause: Wrong ownership
+
+Solution:
+sudo chown jireland:jireland /opt/backups
+sudo chmod 755 /opt/backups
+
+Database dump fails:
+
+Diagnosis:
+docker exec postgres pg_dump -U gitea gitea
+# Error: authentication failed
+
+Cause: Wrong credentials or database name
+
+Solution:
+# Test connection first:
+docker exec -it postgres psql -U gitea gitea
+# Should connect without errors
+
+# If fails, check docker-compose.yml for correct credentials
+
+Disk space full:
+
+Diagnosis:
+df -h /opt/backups
+# Shows: 100% used
+
+Cause: Old backups not cleaned up, or backups too large
+
+Solution:
+# Delete old backups manually:
+find /opt/backups -type f -mtime +7 -delete
+
+# Or delete specific large files:
+ls -lhS /opt/backups/
+# Shows largest files first
+rm /opt/backups/[large-old-file]
+
+# Check if backups are unexpectedly large:
+du -sh /opt/backups/*
+# Investigate any anomalies
+
+Ansible playbook fails:
+
+Diagnosis:
+ansible-playbook backup-homelab.yml
+# Shows: FAILED - RETRYING or fatal errors
+
+Solution:
+# Run with verbose output:
+ansible-playbook backup-homelab.yml -vvv
+
+# Check for:
+# - SSH connectivity issues
+# - Sudo permission problems
+# - Disk space issues on target VMs
+# - Service not running
+
+# Fix identified issue and re-run
+
+Restore fails - “file exists”:
+
+Diagnosis:
+tar -xzf backup.tar.gz -C /opt/docker
+# Error: file exists
+
+Cause: Trying to restore over existing data
+
+Solution:
+# Backup current state first (just in case):
+mv /opt/docker/[service] /opt/docker/[service].old
+
+# Then extract:
+tar -xzf backup.tar.gz -C /opt/docker
+
+# After verifying restore worked:
+rm -rf /opt/docker/[service].old
+
+Restore succeeds but service won't start:
+
+Diagnosis:
+docker compose up -d [service]
+docker logs [service]
+# Shows errors
+
+Possible causes:
+- Permissions wrong after restore
+- Config file corrupted
+- Database connection failed
+- Port conflict
+
+Solutions:
+# Fix permissions:
+sudo chown -R jireland:jireland /opt/docker/[service]
+
+# Check config syntax:
+cat /opt/docker/[service]/config.yml
+
+# Verify dependencies running:
+docker ps | grep postgres
+
+# Check ports:
+ss -tlnp | grep [port]
+
+==== Offsite Backup Strategy (Future - Phase 5) ====
+
+Current Status: NOT IMPLEMENTED
+Target Date: Phase 5.1 (Estimated: August 2026)
+
+Planned Implementation:
+
+Phase 5.1 - External USB Backup:
+
+Hardware:
+- 2TB USB 3.0 external drive
+- LUKS encrypted
+- Mounted at /mnt/backup on mgmt.lab.local
+
+Process:
+1. Daily backups run to /opt/backups (as current)
+2. Weekly sync to USB drive
+3. 30-day retention on USB drive
+
+Commands:
+# Encrypt drive (one-time setup):
+sudo cryptsetup luksFormat /dev/sdb1
+sudo cryptsetup luksOpen /dev/sdb1 backup-drive
+sudo mkfs.ext4 /dev/mapper/backup-drive
+
+# Mount drive:
+sudo mkdir -p /mnt/backup
+sudo mount /dev/mapper/backup-drive /mnt/backup
+
+# Sync backups weekly:
+rsync -av /opt/backups/ /mnt/backup/$(date +%Y-%m-%d)/
+
+Phase 5.2 - Cloud Offsite Backup:
+
+Provider: Backblaze B2 or AWS S3
+Retention: 90 days
+Cost: $5-10/month
+
+Process:
+1. Encrypt backups before upload
+2. Upload to cloud storage
+3. Verify upload successful
+4. Maintain 90-day retention in cloud
+
+Commands:
+# Install rclone:
+sudo apt install rclone
+
+# Configure remote (one-time):
+rclone config
+# Set up B2 or S3 credentials
+
+# Encrypt and upload:
+gpg –encrypt –recipient jireland /opt/backups/backup.tar.gz
+rclone copy /opt/backups/*.gpg remote:homelab-backups/$(date +%Y-%m)/
+
+# Verify upload:
+rclone ls remote:homelab-backups/
+
+# Download and decrypt (for restore):
+rclone copy remote:homelab-backups/backup.tar.gz.gpg /tmp/
+gpg –decrypt /tmp/backup.tar.gz.gpg > /tmp/backup.tar.gz
+
+Testing Offsite Restore:
+
+Monthly test:
+1. Download random backup from cloud
+2. Decrypt backup
+3. Extract to test location
+4. Verify data integrity
+5. Document test results
+
+Offsite Backup Monitoring:
+
+Metrics to track:
+- Last successful upload to cloud
+- Total cloud storage used
+- Upload/download speed
+- Cloud storage costs
+- Encryption key backup status
+
+==== Best Practices ====
+
+Backup Practices:
+
+- Always verify backups completed (check file sizes)
+- Test restore monthly (1st of each month)
+- Keep backups for at least 7 days
+- Encrypt backups before offsite storage
+- Document restore procedures for each service
+- Monitor disk space in /opt/backups
+
+Restore Practices:
+
+- Always backup current state before restoring
+- Test restore in non-production environment first (if possible)
+- Verify data integrity after restore
+- Check service logs after restore
+- Document restore process and results
+
+Security Practices:
+
+- Restrict backup directory permissions (chmod 700)
+- Encrypt offsite backups (GPG)
+- Store encryption keys securely (not with backups)
+- Rotate backup encryption keys annually
+- Audit backup access logs
+
+Operational Practices:
+
+- Review backup logs weekly
+- Clean old backups automatically (7-day retention)
+- Update documentation after any changes
+- Test disaster recovery scenarios quarterly
+- Keep backup procedures simple and documented
+
+==== Recovery Priority Order ====
+
+In disaster scenario, restore in this order:
+
+1. FreeIPA (mgmt.lab.local) - FIRST
+
+    Provides authentication and DNS for entire lab
+    Nothing else works without this
+    Estimated restore time: 30 minutes
+
+
+2. Nginx (apps.lab.local) - SECOND
+
+    Provides reverse proxy for all web services
+    Services accessible after this
+    Estimated restore time: 15 minutes
+
+
+3. Databases (apps.lab.local) - THIRD
+
+    PostgreSQL (for Gitea)
+    MariaDB (for WordPress)
+    Applications need these to function
+    Estimated restore time: 20 minutes
+
+
+4. Core Applications (apps.lab.local) - FOURTH
+
+    Gitea (code repositories - high value)
+    WordPress (blog content)
+    Estimated restore time: 30 minutes
+
+
+5. Monitoring (mntr.lab.local) - FIFTH
+
+    Prometheus, Grafana, Loki
+    Helpful for operations but not critical
+    Estimated restore time: 45 minutes
+
+
+6. Supporting Services (apps.lab.local) - SIXTH
+
+    Portainer, Uptime Kuma, DokuWiki
+    Nice to have but not critical
+    Estimated restore time: 30 minutes
+
+
+7. Non-Critical Services - LAST
+
+    Minecraft, test containers
+    Restore when time permits
+    Estimated restore time: 20 minutes
+
+
+Total restore time (all services): 3-4 hours
+
+==== Quick Reference ====
+
+Run backup manually:
+ssh jireland@mgmt.lab.local
+cd /opt/ansible/playbooks
+ansible-playbook backup-homelab.yml
+
+Check backup status:
+ls -lh /opt/backups/
+du -sh /opt/backups/*
+
+Restore database:
+docker exec -i postgres psql -U [user] [db] < /opt/backups/[db]-YYYYMMDD.sql
+
+Restore files:
+tar -xzf /opt/backups/[service]-YYYYMMDD.tar.gz -C /
+
+Restore FreeIPA:
+sudo ipa-restore /var/lib/ipa/backup/ipa-full-YYYY-MM-DD-HH-MM-SS
+
+Restore VM from snapshot:
+Proxmox UI → VM → Snapshots → Rollback
+
+Test restore (monthly):
+1. Select random backup
+2. Extract to /tmp/restore-test
+3. Verify data integrity
+4. Document results
+5. Clean up /tmp/restore-test
+
+Check disk space:
+df -h /opt/backups
+
+Clean old backups:
+find /opt/backups -type f -mtime +7 -delete
+
+## SSL Certificates
+
+Location: `/etc/nginx/ssl/` on apps.lab.local and mntr.lab.local
+
+Files Backed Up: - `*.key` - Private keys (CRITICAL - store securely) - `*.crt` - Certificates - `*.csr` - Certificate Signing Requests - `ipa-ca.crt` - FreeIPA CA certificate
+
+Backup Frequency: Nightly (included in Docker volume backups)
+
+Security Considerations: - Private keys (*.key files) are sensitive - Store backups in encrypted location - Limit access to backup files - Never commit private keys to version control
+
+Restoration:
+
+```bash # Restore SSL directory from backup sudo tar -xzf backup.tar.gz -C /etc/nginx/ssl/
+
+# Set correct permissions sudo chmod 600 /etc/nginx/ssl/*.key sudo chmod 644 /etc/nginx/ssl/*.crt
+
+# Restart Nginx docker compose restart nginx
+
+# Verify HTTPS works curl -I https://service.lab.local ```
+
+—
+
+## Secrets (Vaultwarden & Ansible Vault)
+
+Vaultwarden Database:
+
+Location: Docker volume on apps.lab.local
+
+Backed Up: Nightly (included in Docker volume backups)
+
+Contains: All password entries, folders, secure notes
+
+Restoration:
+
+```bash # Restore Docker volumes from backup docker compose down sudo tar -xzf backup.tar.gz -C /opt/docker/ docker compose up -d vaultwarden
+
+# Verify Vaultwarden accessible curl -I https://vault.lab.local ```
+
+Ansible Vault:
+
+Location: `/opt/ansible/vars/vault.yml` on mgmt.lab.local
+
+Backed Up: - Version controlled in git (encrypted state) - Nightly backups of /opt/ansible/ directory
+
+Contains: All infrastructure passwords and secrets (encrypted)
+
+Restoration:
+
+```bash # Option 1: Restore from git history cd /opt/ansible git log vars/vault.yml git checkout COMMIT_HASH – vars/vault.yml
+
+# Option 2: Restore from backup sudo cp backup/vault.yml /opt/ansible/vars/vault.yml
+
+# Verify vault decrypts ansible-vault view /opt/ansible/vars/vault.yml ```
+
+Critical Offline Backups:
+
+Store in secure offline location: - Vaultwarden master password (written down, safe location) - Ansible vault password (also in Vaultwarden, but backup offline) - SSH private key passphrases (if used)
+
+Without these, recovery is impossible if Vaultwarden is lost.
+
+—
+
+## Environment Files (.env)
+
+Location: - `/opt/docker/.env` on apps.lab.local - `/opt/docker/.env` on mntr.lab.local
+
+Backed Up: Nightly (included in Docker directory backups)
+
+Contains: Plaintext passwords used by Docker Compose
+
+Security: 0600 permissions, never version controlled
+
+Restoration:
+
+Option 1: Restore from backup: ```bash sudo cp backup/.env /opt/docker/.env sudo chmod 600 /opt/docker/.env sudo chown jireland:jireland /opt/docker/.env ```
+
+Option 2: Regenerate from Ansible Vault (preferred): ```bash ansible-playbook /opt/ansible/playbooks/generate-env-files.yml ```
+
+Restart containers: ```bash docker compose restart ``` 
