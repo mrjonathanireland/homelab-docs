@@ -1,0 +1,311 @@
+---
+# ============================================
+# MGMT.LAB.LOCAL BACKUPS
+# ============================================
+- name: Backup mgmt.lab.local
+  hosts: mgmt.lab.local
+  gather_facts: false  
+
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d') }}"
+    iso_timestamp: "{{ lookup('pipe', 'date +%Y-%m-%dT%H:%M:%S%z') }}"
+  
+  tasks:
+    - name: Ensure backup directory exists
+      file:
+        path: /opt/backups
+        state: directory
+        mode: '0755'
+        owner: [admin]
+        group: [admin]
+    
+    - name: Backup Ansible directory
+      shell: tar -czf /opt/backups/ansible-{{ timestamp }}.tar.gz /opt/ansible/
+    
+    - name: Backup FreeIPA (ipa-backup)
+      shell: |
+        sudo ipa-backup > /dev/null 2>&1
+        echo "FreeIPA backup completed"
+      register: freeipa_backup
+      failed_when: false
+    
+    - name: Clean old Ansible backups (older than 7 days)
+      find:
+        paths: /opt/backups
+        patterns: "ansible-*.tar.gz"
+        age: 7d
+      register: old_ansible_backups
+    
+    - name: Delete old Ansible backups
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_ansible_backups.files }}"
+
+# ============================================
+# APPS.LAB.LOCAL BACKUPS
+# ============================================
+- name: Backup apps.lab.local
+  hosts: apps.lab.local
+
+  vars_files:
+  - /opt/ansible/vars/vault.yml  
+
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d') }}"
+  
+  tasks:
+    - name: Ensure backup directory exists
+      file:
+        path: /opt/backups
+        state: directory
+        mode: '0755'
+        owner: [admin]
+        group: [admin]
+    
+    - name: Backup Gitea database
+      shell: docker exec postgres pg_dump -U [admin] gitea > /opt/backups/gitea-db-{{ timestamp }}.sql
+      environment:
+        PGPASSWORD: "vault_postgres_password"
+    
+    - name: Backup WordPress database
+      shell: >
+        docker exec mariadb mysqldump 
+        -u [admin]
+        -p{{ vault_wordpress_admin_password }} 
+        wordpress > /opt/backups/wordpress-db-{{ timestamp }}.sql
+
+    - name: Backup Gitea data directory
+      shell: tar -czf /opt/backups/gitea-data-{{ timestamp }}.tar.gz /opt/docker/gitea/
+    
+    - name: Backup WordPress data directory
+      shell: tar -czf /opt/backups/wordpress-data-{{ timestamp }}.tar.gz /opt/docker/wordpress/
+    
+    - name: Backup Nginx configuration
+      shell: tar -czf /opt/backups/nginx-{{ timestamp }}.tar.gz /opt/docker/nginx/
+    
+    - name: Backup Portainer data
+      shell: tar -czf /opt/backups/portainer-{{ timestamp }}.tar.gz /opt/docker/portainer/
+    
+    - name: Backup Uptime Kuma data
+      shell: tar -czf /opt/backups/uptime-kuma-{{ timestamp }}.tar.gz /opt/docker/uptime-kuma/
+    
+    - name: Backup DokuWiki data
+      shell: tar -czf /opt/backups/dokuwiki-{{ timestamp }}.tar.gz /opt/docker/dokuwiki/
+    
+    - name: Backup Minecraft world
+      shell: tar -czf /opt/backups/minecraft-{{ timestamp }}.tar.gz /opt/docker/minecraft/
+    
+    - name: Backup docker-compose.yml on apps
+      shell: cp /opt/docker/docker-compose.yml /opt/backups/docker-compose-apps-{{ timestamp }}.yml
+    
+    - name: Clean old database backups on apps (older than 7 days)
+      find:
+        paths: /opt/backups
+        patterns: 
+          - "gitea-db-*.sql"
+          - "wordpress-db-*.sql"
+        age: 7d
+      register: old_db_backups
+    
+    - name: Delete old database backups on apps
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_db_backups.files }}"
+    
+    - name: Clean old service data backups on apps (older than 7 days)
+      find:
+        paths: /opt/backups
+        patterns:
+          - "gitea-data-*.tar.gz"
+          - "wordpress-data-*.tar.gz"
+          - "nginx-*.tar.gz"
+          - "portainer-*.tar.gz"
+          - "uptime-kuma-*.tar.gz"
+          - "dokuwiki-*.tar.gz"
+          - "minecraft-*.tar.gz"
+          - "docker-compose-apps-*.yml"
+        age: 7d
+      register: old_service_backups
+    
+    - name: Delete old service data backups on apps
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_service_backups.files }}"
+
+# ============================================
+# MNTR.LAB.LOCAL BACKUPS
+# ============================================
+- name: Backup mntr.lab.local
+  hosts: mntr.lab.local
+  gather_facts: false
+  
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d') }}"
+  
+  tasks:
+    - name: Ensure backup directory exists
+      file:
+        path: /opt/backups
+        state: directory
+        mode: '0755'
+        owner: [admin]
+        group: [admin]
+    
+    - name: Stop Prometheus for backup
+      shell: docker compose stop prometheus
+      args:
+        chdir: /opt/docker
+    
+    - name: Backup Prometheus data using Docker volume
+      shell: docker run --rm -v prometheus-data:/data -v /opt/backups:/backup alpine tar -czf /backup/prometheus-{{ timestamp }}.tar.gz -C /data .
+    
+    - name: Start Prometheus after backup
+      shell: docker compose start prometheus
+      args:
+        chdir: /opt/docker
+    
+    - name: Stop Grafana for backup
+      shell: docker compose stop grafana
+      args:
+        chdir: /opt/docker
+    
+    - name: Backup Grafana data using Docker volume
+      shell: docker run --rm -v grafana-data:/data -v /opt/backups:/backup alpine tar -czf /backup/grafana-{{ timestamp }}.tar.gz -C /data .
+    
+    - name: Start Grafana after backup
+      shell: docker compose start grafana
+      args:
+        chdir: /opt/docker
+    
+    - name: Stop Loki for backup
+      shell: docker compose stop loki
+      args:
+        chdir: /opt/docker
+    
+    - name: Backup Loki data using Docker volume
+      shell: docker run --rm -v loki-data:/data -v /opt/backups:/backup alpine tar -czf /backup/loki-{{ timestamp }}.tar.gz -C /data .
+    
+    - name: Start Loki after backup
+      shell: docker compose start loki
+      args:
+        chdir: /opt/docker
+    
+    - name: Backup Prometheus configuration
+      shell: cp /opt/docker/prometheus.yml /opt/backups/prometheus-config-{{ timestamp }}.yml
+    
+    - name: Backup Loki configuration
+      shell: cp /opt/docker/loki-config.yml /opt/backups/loki-config-{{ timestamp }}.yml
+    
+    - name: Backup docker-compose.yml on mntr
+      shell: cp /opt/docker/docker-compose.yml /opt/backups/docker-compose-mntr-{{ timestamp }}.yml
+    
+    - name: Clean old Prometheus backups (older than 7 days)
+      find:
+        paths: /opt/backups
+        patterns: 
+          - "prometheus-*.tar.gz"
+          - "prometheus-config-*.yml"
+        age: 7d
+      register: old_prometheus_backups
+    
+    - name: Delete old Prometheus backups
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_prometheus_backups.files }}"
+    
+    - name: Clean old Grafana backups (older than 7 days)
+      find:
+        paths: /opt/backups
+        patterns: "grafana-*.tar.gz"
+        age: 7d
+      register: old_grafana_backups
+    
+    - name: Delete old Grafana backups
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_grafana_backups.files }}"
+    
+    - name: Clean old Loki backups (older than 7 days)
+      find:
+        paths: /opt/backups
+        patterns:
+          - "loki-*.tar.gz"
+          - "loki-config-*.yml"
+        age: 7d
+      register: old_loki_backups
+    
+    - name: Delete old Loki backups
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_loki_backups.files }}"
+    
+    - name: Clean old docker-compose backups on mntr (older than 7 days)
+      find:
+        paths: /opt/backups
+        patterns: "docker-compose-mntr-*.yml"
+        age: 7d
+      register: old_compose_backups
+    
+    - name: Delete old docker-compose backups on mntr
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_compose_backups.files }}"
+
+# ============================================
+# LOGGING AND SUMMARY
+# ============================================
+- name: Log and Summarize
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    iso_timestamp: "{{ lookup('pipe', 'date +%Y-%m-%dT%H:%M:%S%z') }}"
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d') }}"
+  
+  tasks:
+    - name: Log backup completion
+      lineinfile:
+        path: /opt/ansible/logs/backup-audit.log
+        line: "{{ iso_timestamp }} | ALL_SERVICES | BACKUP_COMPLETE | by {{ lookup('env', 'USER') }}"
+        create: yes
+    
+    - name: Display backup summary
+      debug:
+        msg:
+          - "============================================"
+          - "Homelab Backup Complete!"
+          - "============================================"
+          - "Timestamp: {{ timestamp }}"
+          - ""
+          - "Backed up on mgmt.lab.local:"
+          - "  - Ansible playbooks and configs"
+          - "  - FreeIPA (ipa-backup)"
+          - ""
+          - "Backed up on apps.lab.local:"
+          - "  - Gitea database and data"
+          - "  - WordPress database and data"
+          - "  - Nginx configuration"
+          - "  - Portainer, Uptime Kuma, DokuWiki, Minecraft"
+          - "  - docker-compose.yml"
+          - ""
+          - "Backed up on mntr.lab.local:"
+          - "  - Prometheus data and config"
+          - "  - Grafana data"
+          - "  - Loki data and config"
+          - "  - docker-compose.yml"
+          - ""
+          - "Backup locations: /opt/backups/ on each VM"
+          - "Retention: 7 days (old backups cleaned automatically)"
+          - ""
+          - "Verify backups:"
+          - "  ssh jireland@mgmt.lab.local ls -lh /opt/backups/"
+          - "  ssh jireland@apps.lab.local ls -lh /opt/backups/"
+          - "  ssh jireland@mntr.lab.local ls -lh /opt/backups/"

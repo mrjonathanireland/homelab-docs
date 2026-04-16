@@ -1,0 +1,110 @@
+---
+- name: Offboard User from FreeIPA
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars_prompt:
+    - name: username
+      prompt: "Username to offboard"
+      private: false
+    
+    - name: action
+      prompt: "Action (disable/delete)"
+      private: false
+      default: "disable"
+  
+  tasks:
+
+    - name: Set timestamp
+      set_fact:
+        timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+        iso_timestamp: "{{ lookup('pipe', 'date +%Y-%m-%dT%H:%M:%S%z') }}"
+    - name: Validate action
+      assert:
+        that:
+          - action in ['disable', 'delete']
+        fail_msg: "Action must be 'disable' (preserves data) or 'delete' (permanent removal)"
+    
+    - name: Check if user exists
+      command: ipa user-show {{ username }}
+      delegate_to: mgmt.lab.local
+      register: user_check
+      failed_when: false
+      changed_when: false
+    
+    - name: Fail if user doesn't exist
+      fail:
+        msg: "User {{ username }} does not exist!"
+      when: user_check.rc != 0
+    
+    - name: Get user details for logging
+      shell: ipa user-show {{ username }} --all
+      delegate_to: mgmt.lab.local
+      register: user_details
+      changed_when: false
+    
+    - name: Confirm deletion
+      pause:
+        prompt: |
+          
+          ============================================
+          WARNING: You are about to {{ action }} user: {{ username }}
+          ============================================
+          
+          User Details:
+          {{ user_details.stdout }}
+          
+          {{ 'This action is PERMANENT and cannot be undone!' if action == 'delete' else 'User can be re-enabled later if needed.' }}
+          
+          Type 'yes' to confirm, or 'no' to cancel
+      register: confirm
+    
+    - name: Cancel if not confirmed
+      fail:
+        msg: "Offboarding cancelled by user"
+      when: confirm.user_input != 'yes'
+    
+    - name: Disable user account
+      command: >
+        ipa user-disable {{ username }}
+      delegate_to: mgmt.lab.local
+      when: action == 'disable'
+      register: user_disabled
+    
+    - name: Delete user account
+      command: >
+        ipa user-del {{ username }}
+      delegate_to: mgmt.lab.local
+      when: action == 'delete'
+      register: user_deleted
+    
+    - name: Log user offboarding
+      lineinfile:
+        path: /opt/ansible/logs/user-offboarding.log
+        line: "{{ ansible_date_time.iso8601 }} | {{ action | upper }} | {{ username }} | by {{ lookup('env', 'USER') }}"
+        create: yes
+      delegate_to: localhost
+    
+    - name: Save user details backup (for delete action)
+      copy:
+        content: "{{ user_details.stdout }}"
+        dest: "/opt/ansible/logs/deleted-users/{{ username }}-{{ ansible_date_time.date }}.txt"
+      delegate_to: localhost
+      when: action == 'delete'
+    
+    - name: Display offboarding summary
+      debug:
+        msg:
+          - "============================================"
+          - "User Offboarding Complete!"
+          - "============================================"
+          - "Username: {{ username }}"
+          - "Action: {{ action | upper }}"
+          - "{{ 'User account disabled. Can be re-enabled with: ipa user-enable ' + username if action == 'disable' else 'User permanently deleted. Backup saved to /opt/ansible/logs/deleted-users/' }}"
+          - ""
+          - "Next Steps:"
+          - "{{ '1. User cannot log in (account disabled)' if action == 'disable' else '1. User account and data permanently removed' }}"
+          - "2. Remove user from documentation"
+          - "3. Revoke access to any external services"
+          - "{{ '4. User details backed up to /opt/ansible/logs/deleted-users/' + username + '-' + ansible_date_time.date + '.txt' if action == 'delete' else '4. Re-enable later if needed: ipa user-enable ' + username }}"

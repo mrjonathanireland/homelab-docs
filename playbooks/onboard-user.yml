@@ -1,0 +1,123 @@
+---
+- name: Onboard New User to FreeIPA
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars_prompt:
+    - name: username
+      prompt: "Username (lowercase, no spaces)"
+      private: false
+    
+    - name: first_name
+      prompt: "First Name"
+      private: false
+    
+    - name: last_name
+      prompt: "Last Name"
+      private: false
+    
+    - name: email
+      prompt: "Email Address"
+      private: false
+    
+    - name: role
+      prompt: "Role (superadmin/admin/developer/user)"
+      private: false
+      default: "user"
+  
+  tasks:
+
+  - name: Set timestamp
+    set_fact:
+      timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+      iso_timestamp: "{{ lookup('pipe', 'date +%Y-%m-%dT%H:%M:%S%z') }}"
+
+    - name: Validate username format
+      assert:
+        that:
+          - username is match('^[a-z][a-z0-9_-]*$')
+          - username | length >= 3
+          - username | length <= 32
+        fail_msg: "Username must: start with lowercase letter, be 3-32 chars, contain only lowercase/numbers/-/_"
+    
+    - name: Validate email format
+      assert:
+        that:
+          - email is match('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+        fail_msg: "Invalid email format"
+    
+    - name: Validate role
+      assert:
+        that:
+          - role in ['superadmin', 'admin', 'developer', 'user']
+        fail_msg: "Role must be: superadmin, admin, developer, or user"
+    
+    - name: Validate names not empty
+      assert:
+        that:
+          - first_name | length > 0
+          - last_name | length > 0
+        fail_msg: "First and last name cannot be empty"
+    
+    - name: Check if user already exists
+      command: ipa user-show {{ username }}
+      delegate_to: mgmt.lab.local
+      register: user_check
+      failed_when: false
+      changed_when: false
+      ignore_errors: true
+    
+    - name: Fail if user already exists
+      fail:
+        msg: "User {{ username }} already exists in FreeIPA!"
+      when: user_check.rc == 0
+    
+    - name: Create user in FreeIPA
+      command: >
+        ipa user-add {{ username }}
+        --first={{ first_name }}
+        --last={{ last_name }}
+        --email={{ email }}
+      delegate_to: mgmt.lab.local
+      register: user_create
+    
+    - name: Add user to role-specific group
+      command: >
+        ipa group-add-member {{ role }}s --users={{ username }}
+      delegate_to: mgmt.lab.local
+      when: role in ['superadmin', 'admin', 'developer']
+      register: role_group
+      failed_when: false
+    
+    - name: Add user to default users group
+      command: >
+        ipa group-add-member users --users={{ username }}
+      delegate_to: mgmt.lab.local
+      register: default_group
+      failed_when: false
+    
+    - name: Log user creation
+      lineinfile:
+        path: /opt/ansible/logs/user-onboarding.log
+        line: "{{ ansible_date_time.iso8601 }} | CREATED | {{ username }} | {{ role }} | {{ first_name }} {{ last_name }} | {{ email }} | by {{ lookup('env', 'USER') }}"
+        create: yes
+      delegate_to: localhost
+    
+    - name: Display success summary
+      debug:
+        msg:
+          - "============================================"
+          - "User Onboarding Complete!"
+          - "============================================"
+          - "Username: {{ username }}"
+          - "Name: {{ first_name }} {{ last_name }}"
+          - "Email: {{ email }}"
+          - "Role: {{ role }}"
+          - "Groups: users{{ ', ' + role + 's' if role in ['superadmin', 'admin', 'developer'] else '' }}"
+          - "Sudo: {{ 'Yes (see role permissions)' if role in ['superadmin', 'admin', 'developer'] else 'No' }}"
+          - ""
+          - "Next Steps:"
+          - "1. User sets password on first SSH: ssh {{ username }}@apps.lab.local"
+          - "2. Test sudo access: ssh {{ username }}@apps.lab.local 'sudo whoami'"
+          - "3. Document user in Service Catalog"
