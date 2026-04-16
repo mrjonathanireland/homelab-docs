@@ -1,0 +1,597 @@
+# Architecture Overview
+
+## Summary
+
+Three-VM homelab infrastructure running on Proxmox providing centralized identity management, automated provisioning, comprehensive monitoring, SSL/TLS encryption, and secrets management. Demonstrates production-grade enterprise IT operations and infrastructure-as-code principles.
+
+---
+
+## Infrastructure Components
+
+### Virtualization Platform
+
+**Proxmox Virtual Environment**
+- Type 1 hypervisor for VM management
+- Web-based management interface
+- Resource allocation and monitoring
+- Snapshot and backup capabilities
+
+### Virtual Machine Architecture
+┌─────────────────────────────────────────────────────────────┐
+│  Management VM (mgmt.lab.local)                             │
+│  - Identity Management (FreeIPA)                            │
+│  - Automation Control Node (Ansible)                        │
+│  - Certificate Authority                                    │
+│  - DNS Server                                               │
+└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Application Services VM (apps.lab.local)                   │
+│  - Nginx Reverse Proxy (SSL Termination)                    │
+│  - Version Control (Gitea)                                  │
+│  - Blog Platform (WordPress)                                │
+│  - Documentation Wiki (DokuWiki)                            │
+│  - Container Management (Portainer)                         │
+│  - Status Monitoring (Uptime Kuma)                          │
+│  - Password Manager (Vaultwarden)                           │
+│  - Databases (PostgreSQL, MariaDB)                          │
+└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Monitoring VM (mntr.lab.local)
+   - Nginx Reverse Proxy (SSL Termination_                    │
+│  - Metrics Collection (Prometheus)                          │
+│  - Visualization (Grafana)                                  │
+│  - Log Aggregation (Loki)                                   │
+│  - Metrics Exporters (node_exporter)                        │
+└─────────────────────────────────────────────────────────────┘
+---
+
+## Technology Stack
+
+### Operating Systems
+- **Rocky Linux 9** - Management VM (RHEL-compatible)
+- **Ubuntu Server 22.04 LTS** - Application and Monitoring VMs
+
+### Identity & Access Management
+- **FreeIPA** - Centralized identity management
+  - LDAP directory services
+  - Kerberos authentication
+  - Integrated DNS
+  - Internal Certificate Authority
+  - Role-Based Access Control (RBAC)
+  - Password policies and sudo rules
+  - Single Sign-On (SSO) capabilities
+
+### Automation & Configuration Management
+- **Ansible** - Infrastructure automation
+  - User provisioning playbooks
+  - Configuration management
+  - Automated backups
+  - Environment file generation
+  - Idempotent operations
+  - Version-controlled playbooks
+
+### Containerization
+- **Docker** - Container runtime
+- **Docker Compose** - Multi-container orchestration
+  - Declarative service definitions
+  - Volume management
+  - Network isolation
+  - Environment variable injection
+  - Automated container restarts
+
+### Reverse Proxy & Load Balancing
+- **Nginx** - HTTP/HTTPS reverse proxy
+  - SSL/TLS termination
+  - HTTP to HTTPS redirects
+  - Virtual host routing
+  - Proxy headers forwarding
+  - Session caching
+
+### Databases
+- **PostgreSQL 15** - Relational database (Gitea backend)
+- **MariaDB 10.11** - Relational database (WordPress backend)
+  - Persistent volume storage
+  - Automated backups
+  - Connection pooling
+  - Replication-ready architecture
+
+### Monitoring & Observability
+- **Prometheus** - Metrics collection and storage
+  - Time-series database
+  - Service discovery
+  - Alerting rules
+  - 30-day retention
+- **Grafana** - Metrics visualization and dashboards
+  - Custom dashboards
+  - Multiple data sources
+  - Alert management
+  - User authentication
+- **Loki** - Log aggregation
+  - Centralized logging
+  - Label-based indexing
+  - Grafana integration
+- **node_exporter** - System metrics exporter
+  - CPU, memory, disk metrics
+  - Network statistics
+  - Per-VM monitoring
+
+### Version Control
+- **Gitea** - Self-hosted Git service
+  - Private repositories
+  - Web-based interface
+  - Issue tracking
+  - Markdown rendering
+  - SSH and HTTPS access
+
+### Documentation
+- **DokuWiki** - Wiki documentation platform
+  - Markdown support
+  - Version control
+  - Access control
+  - Search functionality
+
+---
+
+## Network Architecture
+
+### DNS Structure
+
+**Internal DNS (managed by FreeIPA):**
+- Domain: `lab.local`
+- Name resolution for all services
+- Automatic host registration
+- PTR records for reverse lookup
+
+**Service Hostnames:**
+Management:
+
+mgmt.lab.local (FreeIPA, Ansible, DNS)
+
+Applications:
+
+git.lab.local (Gitea)
+blog.lab.local (WordPress)
+wiki.lab.local (DokuWiki)
+portainer.lab.local (Portainer)
+status.lab.local (Uptime Kuma)
+vault.lab.local (Vaultwarden)
+
+Monitoring:
+
+grafana.lab.local (Grafana)
+prometheus.lab.local (Prometheus)
+
+**Design Rationale:**
+- SSL termination at edge reduces backend complexity
+- Backend services communicate via HTTP on trusted network
+- Centralized certificate management
+- Simplified troubleshooting
+
+---
+
+## Security Architecture
+
+### SSL/TLS Encryption
+
+**Certificate Authority:**
+- FreeIPA configured as internal Certificate Authority
+- Issues X.509 certificates for all services
+- Centralized trust chain management
+- 2-year certificate validity
+
+**SSL Implementation:**
+- Nginx handles SSL/TLS termination
+- TLS 1.2 and TLS 1.3 enabled
+- Strong cipher suites only (ECDHE, AES-GCM)
+- Perfect Forward Secrecy enabled
+- HTTP automatically redirects to HTTPS
+
+**Certificate Structure:**
+- apps.lab.local certificate with Subject Alternative Names (SANs)
+  - Covers 6 services on application VM
+- mntr.lab.local certificate with SANs
+  - Covers 2 services on monitoring VM
+- Certificates stored at `/etc/nginx/ssl/` on respective hosts
+
+### Secrets Management
+
+**Two-Tier Architecture:**
+
+**Tier 1: Vaultwarden (Human Access)**
+- Self-hosted password manager
+- End-to-end encryption
+- Master password protected
+- Folder-organized credentials
+- Browser extension support
+- Mobile app compatibility
+
+**Tier 2: Ansible Vault (Automation)**
+- AES256 encrypted secrets file
+- Infrastructure credentials stored as variables
+- Vault password stored in Vaultwarden
+- Automated decryption via password file
+- Version-controlled (encrypted state)
+
+**Environment Variable Flow:**
+Ansible Vault (encrypted)
+↓
+Generate .env files (plaintext, 0600 perms)
+↓
+Docker Compose reads environment variables
+↓
+Containers receive credentials at runtime
+**Security Controls:**
+- No hardcoded passwords in code
+- Secrets encrypted at rest
+- Strict file permissions (0600)
+- .gitignore protection
+- Regular password rotation (90-180 days)
+
+### Authentication & Authorization
+
+**Centralized Authentication:**
+- FreeIPA provides single sign-on (SSO)
+- LDAP backend for user directory
+- Kerberos for authentication
+- Automated password policies
+- Account lockout protection
+
+**Role-Based Access Control:**
+- User groups for permission management
+- Sudo rules enforced centrally
+- Host-based access control
+- Service account separation
+
+---
+
+## Data Management
+
+### Persistent Storage
+
+**Docker Volumes:**
+- Named volumes for stateful services
+- Persistent across container recreations
+- Managed by Docker volume driver
+- Automatic mount point management
+
+**Database Storage:**
+- PostgreSQL data directory: dedicated volume
+- MariaDB data directory: dedicated volume
+- Write-ahead logging (WAL) enabled
+- Transaction-safe operations
+
+### Backup Strategy
+
+**Automated Nightly Backups:**
+- PostgreSQL database dumps (pg_dump)
+- MariaDB database dumps (mysqldump)
+- Docker volume archives
+- FreeIPA configuration exports
+- Ansible playbook backups
+- SSL certificate backups
+
+**Backup Schedule:**
+- Frequency: Daily at 2:00 AM
+- Retention: 7 days rolling
+- Location: `/opt/backups/` on each host
+- Method: Ansible playbook execution
+- Verification: Backup size validation
+
+**Backup Contents:**
+Database Backups:
+
+Gitea database (SQL dump)
+WordPress database (SQL dump)
+
+Configuration Backups:
+
+Docker Compose files
+Nginx configurations
+Ansible playbooks
+SSL certificates (private keys secured)
+
+Application Data:
+
+Git repositories
+WordPress uploads
+Wiki content
+Grafana dashboards
+---
+
+## Automation & Infrastructure as Code
+
+### Ansible Automation
+
+**User Management Playbooks:**
+- `user-onboard.yml` - Automated user provisioning
+  - Creates FreeIPA user account
+  - Generates temporary password
+  - Assigns to appropriate groups
+  - Configures sudo access
+  - Sets password expiration
+  - Reduction: 15-20 minutes → under 2 minutes
+
+- `user-modify.yml` - Update user attributes
+  - Change group memberships
+  - Update contact information
+  - Modify sudo privileges
+  - Lock/unlock accounts
+
+- `user-offboard.yml` - User deprovisioning
+  - Disables FreeIPA account
+  - Revokes active Kerberos tickets
+  - Removes from groups
+  - Archives home directory
+  - Documents deactivation
+
+**Infrastructure Playbooks:**
+- `backup-homelab.yml` - Automated backup execution
+  - Database dumps with authentication
+  - Configuration archival
+  - Backup rotation (7-day retention)
+  - Failure notification
+
+- `generate-env-files.yml` - Environment file deployment
+  - Reads encrypted Ansible Vault
+  - Generates `.env` files on target hosts
+  - Sets secure permissions (0600)
+  - Updates .gitignore automatically
+
+**Automation Benefits:**
+- Consistent execution across environments
+- Version-controlled infrastructure
+- Idempotent operations (safe to re-run)
+- Reduced human error
+- Audit trail via git history
+
+### Docker Compose Infrastructure
+
+**Service Orchestration:**
+- Declarative service definitions
+- Automatic dependency ordering
+- Health checks for containers
+- Restart policies configured
+- Resource limits defined
+
+**Environment Variable Management:**
+- Credentials injected via `.env` files
+- Docker Compose variable substitution
+- No hardcoded secrets in compose files
+- Regenerated from Ansible Vault
+
+**Network Isolation:**
+- Internal Docker bridge network
+- Service-to-service communication
+- Port mapping for external access
+- DNS resolution within network
+
+---
+
+## Monitoring & Observability
+
+### Metrics Collection
+
+**Prometheus Architecture:**
+- Pull-based metric collection
+- Service discovery configuration
+- Scrape intervals: 15 seconds
+- Retention: 30 days
+- Query language: PromQL
+
+**Monitored Metrics:**
+- System: CPU, memory, disk, network
+- Application: HTTP requests, response times
+- Database: Connections, queries, replication lag
+- Containers: Resource usage, restart counts
+
+### Visualization
+
+**Grafana Dashboards:**
+- System overview (CPU, memory, disk)
+- Service health (uptime, response times)
+- Database performance (queries, connections)
+- Network traffic (bandwidth, packets)
+- Custom alerts and notifications
+
+### Log Aggregation
+
+**Loki Implementation:**
+- Centralized log collection
+- Label-based indexing
+- Grafana integration
+- Query language: LogQL
+- Log retention: 30 days
+
+**Log Sources:**
+- System logs (syslog, journald)
+- Application logs (Docker containers)
+- Web server logs (Nginx access/error)
+- Authentication logs (FreeIPA)
+
+---
+
+## Deployment Workflow
+
+### Service Deployment Process
+
+1. **Development**
+   - Write/modify Docker Compose configuration
+   - Update environment variable templates
+   - Document changes in changelog
+
+2. **Configuration Management**
+   - Update Ansible Vault with new secrets
+   - Regenerate environment files via playbook
+   - Version control configuration changes
+
+3. **Deployment**
+   - Pull latest configuration from git
+   - Run `docker compose down && docker compose up -d`
+   - Verify service health
+   - Check logs for errors
+
+4. **Validation**
+   - Test service accessibility
+   - Verify SSL certificates
+   - Confirm authentication works
+   - Check monitoring dashboards
+
+5. **Documentation**
+   - Update service catalog
+   - Document troubleshooting steps
+   - Add runbook entries
+   - Update architecture diagrams
+
+---
+
+## High Availability Considerations
+
+### Current State (Single Host)
+- All VMs run on single Proxmox host
+- Acceptable for lab environment
+- Documented recovery procedures
+- Regular backup validation
+
+### Future Expansion Path
+
+**Phase 3: Network Segmentation**
+- OPNsense virtual firewall
+- VLAN segmentation (Management, Services, Kubernetes, AI)
+- Firewall rules between zones
+- Traffic isolation and prioritization
+
+**Phase 4: Kubernetes Migration**
+- K3s lightweight Kubernetes cluster
+- 3+ worker nodes for redundancy
+- Persistent volume replication
+- Service mesh for traffic management
+- Horizontal pod autoscaling
+
+**Phase 5: Storage Enhancement**
+- TrueNAS VM for centralized storage
+- ZFS with RAID-Z redundancy
+- NFS exports for Kubernetes persistent volumes
+- Automated snapshots and replication
+
+---
+
+## Design Decisions & Rationale
+
+### Why FreeIPA?
+- Provides enterprise-grade identity management
+- Integrated DNS and Certificate Authority
+- Industry-standard LDAP/Kerberos backend
+- Common in Red Hat/CentOS environments
+- Demonstrates understanding of identity infrastructure
+
+### Why Docker Compose (vs Kubernetes)?
+- Lower complexity for initial deployment
+- Easier troubleshooting and debugging
+- Sufficient for homelab scale
+- Foundation knowledge before K8s migration
+- Faster iteration and learning
+
+### Why Ansible?
+- Agentless architecture (SSH-based)
+- Declarative configuration management
+- Industry-standard automation tool
+- Version-controlled infrastructure
+- Idempotent operations reduce errors
+
+### Why Nginx?
+- Lightweight and performant
+- Mature SSL/TLS implementation
+- Extensive documentation
+- Flexible configuration
+- Industry-standard reverse proxy
+
+### Why Split Monitoring VM?
+- Resource isolation from application services
+- Monitoring remains available during app issues
+- Clearer resource accounting
+- Easier capacity planning
+- Follows observability best practices
+
+---
+
+## Skills Demonstrated
+
+### Technical Skills
+- Linux system administration (Rocky Linux, Ubuntu)
+- Virtualization (Proxmox)
+- Identity management (FreeIPA, LDAP, Kerberos)
+- Automation (Ansible playbooks, idempotent operations)
+- Containerization (Docker, Docker Compose)
+- Reverse proxy configuration (Nginx)
+- SSL/TLS certificate management
+- Secrets management (Ansible Vault, Vaultwarden)
+- Monitoring and observability (Prometheus, Grafana, Loki)
+- Database administration (PostgreSQL, MariaDB)
+- Version control (Git, Gitea)
+- Infrastructure as code principles
+
+### Professional Practices
+- Comprehensive documentation
+- Systematic troubleshooting procedures
+- Regular backup validation
+- Security hardening
+- Change management
+- Disaster recovery planning
+- Capacity planning
+- Performance monitoring
+
+---
+
+## Future Enhancements
+
+### Planned Improvements
+
+**Phase 3: Network Infrastructure (Next)**
+- Deploy OPNsense virtual firewall
+- Implement VLAN segmentation
+- Configure firewall rules and policies
+- Add intrusion detection/prevention
+- Timeline: 2-3 months
+
+**Phase 4: Container Orchestration**
+- Migrate to Kubernetes (K3s)
+- Implement persistent storage (Longhorn/NFS)
+- Deploy Helm charts for applications
+- Configure ingress controllers
+- Add horizontal pod autoscaling
+- Timeline: 6-12 months
+
+**Phase 5: Advanced Features**
+- Deploy local AI/LLM inference (Ollama)
+- Add centralized NAS (TrueNAS)
+- Implement GitOps (ArgoCD/Flux)
+- Add service mesh (Istio/Linkerd)
+- Enhance monitoring (Thanos, Mimir)
+- Timeline: 12+ months
+
+### Learning Objectives
+- Gain Kubernetes production experience
+- Explore cloud-native technologies
+- Implement advanced networking concepts
+- Develop AI/ML infrastructure skills
+- Practice SRE principles at scale
+
+---
+
+## Contact & Resources
+
+**Repository:** github.com/[username]/homelab-docs
+
+**Additional Documentation:**
+- [Service Catalog](docs/service-catalog.md) - Complete service inventory
+- [Deployment Runbook](docs/service-deployment-runbook.md) - Step-by-step deployment
+- [User Management](docs/user-management-runbook.md) - User lifecycle procedures
+- [Troubleshooting Guide](docs/troubleshooting-guide.md) - Common issues and solutions
+- [SSL/TLS Guide](docs/ssl-tls-guide.md) - Certificate management
+- [Secrets Management](docs/secrets-management-runbook.md) - Password handling procedures
+- [Common Commands](docs/common-commands.md) - Quick reference
+- [Backup Information](docs/backup-information.md) - Backup and recovery procedures
+
+**Connect:**
+- LinkedIn: [linkedin.com/in/jonathan-ireland](https://linkedin.com/in/jonathan-ireland)
+- Email: mr.jonathanireland@gmail.com
