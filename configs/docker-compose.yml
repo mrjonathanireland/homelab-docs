@@ -1,0 +1,149 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: [user]
+      POSTGRES_PASSWORD: [in secrets vault]
+      POSTGRES_DB: gitea
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    networks:
+      - homelab
+
+  gitea:
+    image: gitea/gitea:latest
+    container_name: gitea
+    restart: always
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__database__DB_TYPE=postgres
+      - GITEA__database__HOST=postgres:5432
+      - GITEA__database__NAME=gitea
+      - GITEA__database__USER=[user]
+      - GITEA__database__PASSWD=[in secrets vault]
+    volumes:
+      - ./gitea:/data
+    depends_on:
+      - postgres
+    networks:
+      - homelab
+
+  mariadb:
+    image: mariadb:10
+    container_name: mariadb
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: [in secrets vault]
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: [user]
+      MYSQL_PASSWORD: [in secrets vault]
+    volumes:
+      - ./mariadb:/var/lib/mysql
+    networks:
+      - homelab
+
+  wordpress:
+    image: wordpress:latest
+    container_name: wordpress
+    restart: always
+    environment:
+      WORDPRESS_DB_HOST: mariadb
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: [user]
+      WORDPRESS_DB_PASSWORD: [in secrets vault]
+    volumes:
+      - ./wordpress:/var/www/html
+    depends_on:
+      - mariadb
+    networks:
+      - homelab
+
+  minecraft:
+    image: itzg/minecraft-server
+    container_name: minecraft
+    restart: always
+    environment:
+      EULA: "TRUE"
+      MEMORY: "2G"
+      TYPE: "VANILLA"
+    volumes:
+      - ./minecraft:/data
+    ports:
+      - "[ports:ports]"
+    networks:
+      - homelab
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    restart: always
+    volumes:
+      - ./uptime-kuma:/app/data
+    networks:
+      - homelab
+
+  dokuwiki:
+    image: linuxserver/dokuwiki
+    container_name: dokuwiki
+    restart: always
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+    volumes:
+      - ./dokuwiki:/config
+    networks:
+      - homelab
+
+  nginx:
+    user: root
+    image: nginx:latest
+    container_name: nginx
+    restart: on-failure
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/html:/usr/share/nginx/html
+      - /etc/nginx/ssl:/etc/nginx/ssl:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - gitea
+      - wordpress
+      - uptime-kuma
+      - dokuwiki
+    networks:
+      - homelab
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: always
+    environment:
+      - VIRTUAL_HOST=portainer.lab.local
+      - VIRTUAL_PORT=[ports]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./portainer:/data
+    networks:
+      - homelab
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      - homelab
+    environment:
+      - DOMAIN=https://vault.lab.local
+    volumes:
+      - /etc/vaultwarden/data:/data
+
+networks:
+  homelab:
+    driver: bridge

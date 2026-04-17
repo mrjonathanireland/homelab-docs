@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:[port]']
+
+  - job_name: 'mntr'
+    static_configs:
+      - targets: ['x.x.x.x:[port]']
+        labels:
+          instance: 'mntr.lab.local'
+
+  - job_name: 'apps'
+    static_configs:
+      - targets: ['X.x.x.x:[port]']
+        labels:
+          instance: 'apps.lab.local'
+
+  - job_name: 'mgmt'
+    static_configs:
+      - targets: ['x.x.x.x:[port]']
+        labels:
+          instance: 'mgmt.lab.local'
+
