@@ -31,9 +31,9 @@ Three virtual machines running on Proxmox with:
 
 ## Documentation
 
-- [Service Catalog](docs/service_catalog.md)
-- [Troubleshooting Guide](docs/troubleshooting-guide.md)
-- [SSL/TLS Guide](docs/ssl_tls_guide.md)
+- [Service Catalog](homelab-docs/service_catalog.md)
+- [Troubleshooting Guide](homelab-docs/troubleshooting-guide.md)
+- [SSL/TLS Guide](homelab-docs/ssl_tls_guide.md)
 
 ## Contact
 
