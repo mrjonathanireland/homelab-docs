@@ -30,10 +30,10 @@ Three virtual machines running on Proxmox with:
 - Production-grade monitoring
 
 ## Documentation
-
-- [Service Catalog](homelab-docs/service_catalog.md)
-- [Troubleshooting Guide](homelab-docs/troubleshooting-guide.md)
-- [SSL/TLS Guide](homelab-docs/ssl_tls_guide.md)
+- [Network Overview](https://github.com/mrjonathanireland/homelab-docs/blob/main/diagrams/network_diagram)
+- [Service Catalog](https://github.com/mrjonathanireland/homelab-docs/tree/main/docs/service_catalog)
+- [Troubleshooting Guide](https://github.com/mrjonathanireland/homelab-docs/tree/main/docs/troubleshooting_guide)
+- [SSL/TLS Guide](https://github.com/mrjonathanireland/homelab-docs/blob/main/docs/ssl_tsl_management_guide)
 
 ## Contact
 
